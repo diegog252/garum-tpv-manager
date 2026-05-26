@@ -1,0 +1,41 @@
+# ── Python ─────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ── Outputs de build (NSIS, zips, .exe) ────────────────────────────
+# El proyecto se compila/empaqueta en local; los entregables NO van
+# al repo (se generan con `makensis GarumTPV.nsi` + el flujo descrito
+# en el README). Si quieres distribuir el .exe, usa Releases de GitHub.
+_nsis_build/
+*.exe
+*.zip
+
+# ── Runtime de Python embebido ─────────────────────────────────────
+# Se descarga aparte (~14 MB) y se mete en runtime/. No va al repo.
+runtime/python-embed.zip
+runtime/python/
+
+# ── Config local (preferencias del usuario, no secretos) ───────────
+# La contrasena de postgres NUNCA se guarda en disco. Pero el
+# ultimo_host / ultimo_db son preferencias locales del tecnico.
+config.json
+
+# ── IDE / Editor ───────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Sistema operativo ──────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# ── Logs y temporales ──────────────────────────────────────────────
+*.log
+*.tmp
+*.bak

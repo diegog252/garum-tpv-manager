@@ -1,0 +1,606 @@
+GARUM TPV Manager v7.4
+=======================
+Herramienta interna para gestionar la integracion de TPVs GARUM.
+Diseno corporativo 4GL Solutions.
+
+
+NOVEDADES v7.4 — MEJORAS DE UX + REORGANIZACION
+------------------------------------------------
+Esta version es 100% compatible con v7.3 — solo cambia la presentacion y
+algunos detalles de comportamiento. Sin cambios de schema ni de protocolo.
+
+USUARIO SISTEMA
+  > Comportamiento real "SOLO crea si no existe". Si el usuario
+    integracion4gl ya esta en el equipo, no se toca: ni contrasena, ni
+    grupo, ni flags. Antes el texto decia "se actualiza pwd+flags+grupo"
+    pero el codigo nunca lo hacia — ahora la UI dice la verdad.
+  > Boton renombrado: "Crear si no existe en este equipo".
+  > Fix: descripcion del usuario acortada de 49 a 38 caracteres. El limite
+    duro de PowerShell -Description es 48, por lo que antes daba un error
+    "El argumento 49 tiene una longitud de caracteres excesiva".
+  > UI con tarjetas por paso (check / create / group) con estados visuales
+    pending / running / done / skipped / error y animacion stagger.
+
+COMBUSTIBLES (antes "Articulos")
+  > Sidebar renombrado a "⛽ Combustibles". El nombre antiguo ("Articulos")
+    se confundia con "Articulos MPE" (otro modulo, otra tabla).
+  > Columna Comision ahora EDITABLE en la sub-tab "Ver". Toggle clicable
+    que aplica el cambio a TODOS los TPVs accesibles en RED.
+  > Nueva columna codigo_concentrador (read-only).
+  > Imagenes cc_<codigo_concentrador>.png junto al nombre del articulo
+    en AMBAS sub-tabs (Ver e Impuestos). Las imagenes se sirven desde
+    C:\GARUM\images\carburante\imagenes_surtidor. Si el PNG no existe,
+    el icono se oculta automaticamente.
+
+PISTA
+  > La tabla de mangueras (sub-tab Surtidores) muestra tambien la imagen
+    cc_<codigo_concentrador>.png en la columna Producto, junto al nombre
+    del articulo asociado al tanque.
+
+MEDIOS DE PAGO
+  > "Articulos MPE" YA NO esta en el sidebar como modulo independiente.
+    Se ha movido como sub-tab dentro del modulo "Medios de pago":
+      💳 Medios de pago    (sub-tab por defecto, tabla mpe)
+      📦 Articulos          (sub-tab nuevo, tabla articulo_mpe)
+    Cada sub-tab conserva su propio search + selector TPV + Leer BD,
+    visibles solo cuando esa sub-tab esta activa.
+
+REINTEGRAR TPV
+  > Plan en vivo rediseñado como step-cards (mismo formato visual que
+    el modulo "Usuario sistema"): cada paso es una tarjeta con icono +
+    texto + estado, con transicion suave entre estados.
+  > Aviso "Para TPVs que ya estaban en la red. Si es nuevo → Nuevo TPV"
+    movido al INICIO del modulo. Antes quedaba enterrado debajo de la
+    tarjeta de deteccion y muchos tecnicos no lo veian.
+
+
+NOVEDADES v7.3 — USUARIO SISTEMA + IMPORTAR NUMEROS + MEJORAS REINTEGRAR
+------------------------------------------------------------------------
+
+PASO PREVIO: USUARIO SISTEMA (integrado en Reintegrar TPV)
+  Al abrir "🔄 Reintegrar TPV" veras al principio una seccion colapsable
+  "PASO PREVIO: 🔐 Usuario sistema — integracion4gl".
+
+  Esta seccion crea (o actualiza) un usuario de Windows local con los
+  siguientes datos fijos:
+    - Usuario: integracion4gl
+    - Contrasena: hardcoded (no se muestra)
+    - Grupo: Administradores
+    - La contrasena NO caduca, la cuenta NO expira
+
+  >> Por que es necesario
+  El mismo usuario tiene que existir en TODOS los TPVs de la red para
+  que la herramienta pueda acceder al \\IP\C$\GARUM del principal y
+  copiar la carpeta GARUM (paso 6 de Reintegrar). Sin este usuario,
+  Reintegrar falla con "acceso denegado".
+
+  Conectate por AnyDesk a cada TPV y pulsa el boton. Idempotente: si el
+  usuario ya existe, solo se actualiza contrasena + flags + grupo.
+
+
+REINTEGRAR TPV — INTEGRACION SMB CON integracion4gl
+  El paso 6 (copia C:\\GARUM) ahora usa explicitamente las credenciales
+  del usuario integracion4gl para autenticar la sesion SMB contra
+  \\IP\C$ antes del robocopy. Funciona aunque el usuario Windows actual
+  del TPV destino no exista en el principal.
+
+
+NUEVO: IMPORTAR NUMEROS DE SERIE (sub-tab en Series)
+  La pestana "📅 Series" tiene ahora 2 sub-tabs:
+    - "📋 Ver series" (vista de siempre)
+    - "↑ Importar numeros" (NUEVO)
+
+  Para que: tras un Reintegrar TPV, los contadores serie.numero quedan
+  con los valores del backup origen. El cliente facilita un fichero XML
+  con los numeros reales y aqui se aplican.
+
+  Flujo:
+    1. Subir XML con la lista de series y numeros
+    2. Vista previa con codigo de colores:
+       verde   = se va a actualizar
+       gris    = ya coincide (sin cambio)
+       rojo    = la serie del XML no existe en este TPV
+    3. Pulsar "✓ Aplicar al TPV local" — solo afecta a 127.0.0.1
+
+  El parser XML acepta varios formatos comunes (atributos, hijos, alias).
+
+
+OTRAS MEJORAS EN REINTEGRAR
+  > Paso 3 (marcar series como propias): ahora busca el marcador (N)
+    en serie.descripcion (mas fiable que el regex sobre serie.codigo).
+    Si no encuentra nada, cae al metodo antiguo como fallback.
+
+  > Si el paso 6 (copia C:\\GARUM) falla, se SALTA automaticamente el
+    paso 7 (hibernate) con aviso claro de que ambos hay que hacerlos a
+    mano. Evita editar un fichero que no existe.
+
+  > Modal de progreso en vivo durante la copia de C:\\GARUM con spinner,
+    contador MM:SS y ultima linea del robocopy. Se cierra solo al terminar.
+
+
+NOVEDADES v7.2 — MODULO "ARTICULOS" + MEJORAS REINTEGRAR
+---------------------------------------------------------
+NUEVO modulo "📋 Articulos" en el menu lateral (junto a Articulos MPE):
+  Dos sub-tabs para gestionar los carburantes (filtro fijo
+  asignable_tanque=TRUE AND carburante=TRUE):
+
+  - "📋 Ver articulos": tabla read-only con codigo, nombre, comision
+    y el impuesto actual (porcentaje + nombre).
+
+  - "💶 Impuestos": editor visual. Cada articulo muestra un badge
+    grande con su porcentaje + nombre. Click abre modal con cards
+    en grid de 3 columnas (porcentaje gigante + nombre de cada tipo
+    de IVA disponible). Click en un card aplica el cambio a TODOS
+    los TPVs accesibles via DELETE+INSERT en articulo_impuesto.
+
+  >> Por que importa
+  Antes habia que cambiar el IVA articulo a articulo en pgAdmin para
+  cada TPV de la estacion. Ahora un solo click cambia el impuesto en
+  toda la red.
+
+
+MEJORAS EN REINTEGRAR TPV
+-------------------------
+- NUEVO PASO 6 (opcional, default ON): copia automatica de C:\\GARUM
+  del principal a este equipo via robocopy \\\\IP\\C$\\GARUM. Util cuando
+  has reinstalado Windows y necesitas repoblar la carpeta entera (jars,
+  configs, scripts) sin abrir Explorador. Requiere permisos de admin
+  en el principal.
+
+- Cambio en pg_restore: ya no usa "--clean --if-exists" (que en
+  algunas versiones de PostgreSQL daba "demasiados argumentos en la
+  linea de ordenes"). Ahora hace DROP+CREATE atomico: termina sesiones
+  activas + DROP DATABASE + CREATE DATABASE + pg_restore sobre BD
+  limpia. Mas robusto y predecible.
+
+- Plan en vivo pasa de 6 a 7 pasos (paso 7 = hibernate, antes era
+  paso 6).
+
+
+CONFIGURACION TPV — NUEVO TOGGLE
+---------------------------------
+En la pestana "⚙ Configuracion TPV" aparece un toggle nuevo:
+  "Borrar display del surtidor sin suministros"
+  (campo configuracion_estacion.borrar_display_surtidor_sin_suministros)
+
+Al cambiarlo se aplica a TODOS los TPVs accesibles.
+
+
+FIX EN EL PANEL
+----------------
+- Boton "Dejar como secundario" funciona de nuevo. En v7.1 tenia
+  HTML mal formado (comillas dobles literales en el onclick) y el
+  click no ejecutaba nada. Solo se notaba en el escenario de conflicto
+  de principal (2 TPVs con principal=TRUE simultaneamente). Arreglado.
+
+
+NOVEDADES v7.1 — NUEVO MODULO "REINTEGRAR TPV"
+-----------------------------------------------
+Modulo paralelo a "Nuevo TPV" pero para un caso concreto:
+
+  REINTEGRAR un TPV que YA estaba en la red.
+  (BD corrupta, Windows reinstalado, equipo nuevo con el mismo rol)
+
+A diferencia de "Nuevo TPV" (asistente de 5 pasos), Reintegrar es
+una pagina unica con UN solo boton. Solo te pide la contrasena de
+postgres y resuelve el resto automaticamente:
+
+  - Detecta solo la IP local (10.0.0.10X) y deduce el numero de TPV.
+  - Tres campos editables siempre visibles, por si la auto-deteccion
+    no acierta o el tecnico necesita override manual:
+      * TPV a reintegrar  (2..9)
+      * IP del TPV principal/origen  (10.0.0.101 por defecto)
+      * IP local de este TPV  (auto = 10.0.0.10{nº puesto})
+  - Casilla "Editar hibernateCentral.cfg.xml automaticamente" (ON).
+    Desmarcala si prefieres editarlo a mano — la herramienta te
+    indica la URL JDBC exacta a poner.
+
+  >> Que hace
+  Plan de 6 pasos que se van TACHANDO en vivo mientras el job corre:
+    1. Backup tpv + controlpista desde 10.0.0.101 (pg_dump)
+    2. Restore en este equipo (pg_restore a 127.0.0.1, sobrescribe)
+    3. BD tpv: serie.propia=TRUE para el patron del TPV + reapuntar
+       regla_facturacion (tienda y carburante)
+    4. BD tpv: principal=FALSE en todos, principal=TRUE en este puesto
+    5. BD controlpista: local_config.ip = IP local del TPV +
+       local_config.pos_version_id_local = 10 + nº puesto
+    6. (Opcional) Editar C:\\GARUM\\hibernateCentral.cfg.xml
+
+  >> Lo que NO hace (a diferencia de Nuevo TPV)
+  Cero modificaciones en el resto de TPVs. La operacion es 100% local:
+    - NO toca la tabla 'tpv' del principal (este TPV ya esta alli)
+    - NO toca la tabla 'pos' (las filas ya existen)
+    - NO toca propiedad.CopyDirectories del resto (eso lo gestionan
+      "Hacer principal" / "Reintegrar como secundario" del Panel)
+
+  >> Que ves durante el job
+  - Plan en vivo: el paso en curso se resalta en azul con animacion ⏳,
+    los terminados se tachan con ✓ verde, errores en rojo con ✕.
+  - Log tecnico colapsable: cerrado por defecto. Si algo falla, se
+    abre solo y muestra el detalle de pg_dump / PostgreSQL.
+  - Si refrescas el navegador o cambias de pestana durante el job,
+    al volver a "Reintegrar" se recupera el estado y sigue el polling.
+
+  >> Tarjeta de resultado al terminar
+  - Verde con ✓ si todo OK + recordatorio "reinicia GARUM".
+  - Ambar con ⚠ si la edicion de hibernate fallo (todo lo demas OK)
+    + instrucciones exactas con la URL JDBC a copiar.
+  - Roja con ✕ si fallo algun paso critico + log auto-abierto + boton
+    "Reintentar".
+
+
+NOVEDADES v7.0 — NUEVO MODULO "CLIENTES"
+-----------------------------------------
+Integramos la app independiente "Gestion Clientes Garum" (tpv-clientes,
+proyecto Electron) dentro del propio garum_tpv_manager. Ya no hace falta
+instalar dos aplicaciones: todo se gestiona desde aqui, con un solo
+instalador para los tecnicos.
+
+  >> Que ves
+  Nueva pestana "👥 Clientes" en la sidebar con 4 sub-tabs:
+    - 👤 Clientes: alta/edicion con tabs internas Datos/Direcciones/Asociaciones
+    - 🚗 Vehiculos: gestion de matriculas
+    - 💳 Tarjetas: gestion de PAN, PIN, tipo, fechas, flags
+    - 🔗 Asociaciones cliente-tarjeta-vehiculo (con baja/restore)
+
+  Selector de TPV propio en la cabecera (igual que Sondas, Impresoras,
+  Pista...) — puedes ver los clientes/asociaciones/etc. de cualquier
+  TPV de la red.
+
+  >> Lo que cambia para el tecnico
+  Antes: instalar 2 apps (garum_tpv_manager + Gestion Clientes Garum).
+  Ahora: 1 sola app. Todo bajo el mismo paraguas.
+
+
+OTROS CAMBIOS EN v7.0 (acumulados desde v6.0)
+----------------------------------------------
+Pista:
+  - DOMS IP editable directamente desde la cabecera.
+  - Sub-pestañas internas: Surtidores / Productos / EPT.
+    Productos = articulos con asignable_tanque=TRUE.
+    EPT = terminales de pago electronicos (tabla ept).
+  - Layout compacto para pantallas 1024x768 (TPVs de estacion).
+  - accion_cola_completa con desplegable estricto A/B.
+
+Impresoras:
+  - UI rediseñada sin duplicacion de inputs.
+  - Si editas un TPV remoto, no salen las impresoras locales del PC del
+    tecnico (que no aplicarian alli) — aviso amarillo y entrada manual.
+  - Bug del "500 al guardar" arreglado (pre-validacion de tipos).
+
+Articulos MPE:
+  - Columnas Precio/Actualizacion/Usuario eliminadas (no eran relevantes).
+  - Campo "Clase" editable: toggle vacio <-> R.
+
+Personal:
+  - Boton "Ver claves" funciona de nuevo (estaba roto desde la auditoria
+    de v5.12). Las claves solo se piden al backend bajo accion explicita
+    del tecnico, no se exponen en cada lectura normal.
+
+Instalador:
+  - Ruta por defecto cambiada a C:\\GARUMTOOLS\\GarumTPV.
+  - YA NO pregunta donde instalar — va directo a esa ruta.
+  - El acceso directo del Escritorio se crea para TODOS los usuarios
+    del TPV (antes a veces no aparecia tras instalar con UAC).
+
+Distribucion:
+  - Script sync-to-onedrive.bat para replicar a OneDrive como backup.
+  - Tras cada bump de version el flujo de empaquetado incluye sync
+    automatico a OneDrive.
+
+
+NOVEDADES v6.0 — MODULO "PISTA" (incluido en v7.0)
+---------------------------------------------------
+Salto de version mayor por la incorporacion del modulo Pista (⛽), que
+permite ver y editar la configuracion fisica del repostaje en un solo
+sitio. Antes habia que abrir manualmente pgAdmin para tocar surtidores
+y mangueras; ahora se hace desde la app y los cambios se aplican a
+TODOS los TPVs accesibles de una sola vez.
+
+  >> Que ves
+  - Cabecera con la IP del DOMS (concentrador fisico)
+  - Franja amarillo-azul arriba con la "configuracion global" — 5 campos
+    que se aplican a TODOS los surtidores simultaneamente (aviso /
+    alarma manguera descolgada, modo operacion por defecto, suministros
+    cola, accion cola completa).
+  - Lista de SURTIDORES colapsables. Por defecto solo se ve la cabecera
+    (Surtidor 1, N mangueras, badges). Click en cabecera -> se despliega
+    con animacion suave su configuracion y el boton de mangueras.
+  - Cada surtidor expone 6 CAMPOS EDITABLES (bajo informatica, conc.
+    logico, puerto, direccion fisica, interface tipo general, interface
+    tipo protocol). Editas en uno y se aplica a ese surtidor en todos
+    los TPVs.
+  - Las MANGUERAS de cada surtidor son un sub-toggle: boton "Ver
+    mangueras (N)" -> desplegable con tabla animada. Columnas: Manguera,
+    Tanque (selector — puedes reasignar a otro tanque), Producto (info),
+    conc. logico (editable), aspiracion (editable), id_manguera_externo
+    (editable text).
+  - El indicador "(varia)" aparece en la franja global cuando los
+    surtidores tienen valores distintos entre si — aviso visual al
+    tecnico de que la configuracion no esta uniforme.
+
+  >> Que NO se ha cambiado
+  Pestanas Panel / Propiedades / Impresoras / Sondas / Personal / Medios
+  de pago / Configuracion TPV / Control Pista / Articulos / Series /
+  Nuevo TPV / Tipo de estacion / Ajustes — todas siguen exactamente
+  igual que en v5.x. Solo se ha sumado Pista.
+
+  >> Tras instalar v6.0: Ctrl+F5 en el navegador la primera vez para
+  limpiar la cache del HTML anterior (la app ya esta blindada con
+  no-cache desde v5.12, pero si vienes de una version anterior no
+  cuesta nada hacerlo).
+
+
+NOVEDADES v5.13 (incluidas en v6.0) — MODULO PISTA
+---------------------------------------------------
+Nueva pestaña "⛽ Pista" en el menu lateral. Muestra la configuracion
+fisica de la pista de un TPV en una sola vista, agrupando todo lo
+relacionado con el repostaje:
+
+  > Una tarjeta por SURTIDOR, mostrando concentrador logico, puerto,
+    y flags (predeterminador, auto-autoriza).
+  > Dentro de cada surtidor, una tabla de sus MANGUERAS con el TANQUE
+    al que apuntan y el PRODUCTO (gasolina 95, gasoil B7, etc.).
+  > Cabecera con la IP del DOMS (concentrador fisico de la pista) -
+    util para verificar si un TPV apunta al DOMS correcto.
+  > Si hay tanques visibles sin manguera asociada, aparecen al final
+    en una tabla "Tanques sin manguera".
+
+Campos editables del SURTIDOR (se aplican en RED a TODOS los TPVs
+accesibles, identificando el surtidor por su numero):
+  - Bajo informatica (Si/No)
+  - Puerto concentrador
+  - Interface tipo general
+  - Interface tipo protocol
+  - Direccion fisica concentrador
+
+Campos GLOBALES — franja amarilla arriba (aplican a TODOS los
+surtidores de TODOS los TPVs simultaneamente):
+  - Aviso manguera descolgada
+  - Modo operacion por defecto
+  - Suministros cola
+  - Accion cola completa (1 letra A-Z)
+
+Si los surtidores ya tienen valores distintos, el badge muestra
+"(varia)" en rojo. Cualquier edicion uniformiza el campo en todos.
+
+Los campos editables aparecen como badges con borde punteado y ✏
+bajo la cabecera de cada surtidor — haz clic para editar. El modal
+flotante muestra el resultado por TPV (OK / error).
+
+Resto de campos (mangueras, tanques, productos) son SOLO LECTURA en
+esta version.
+
+
+NOVEDADES v5.12 — AUDITORIA PRE-DISTRIBUCION
+---------------------------------------------
+Release de endurecimiento (estabilidad + seguridad + limpieza) antes de
+distribuir a los tecnicos. SIN nuevas funcionalidades visibles: pestanas,
+flujos y botones siguen iguales. Por que importa:
+
+  > Las contrasenas ya nunca aparecen en URLs ni en respuestas JSON
+    (verificar-pg paso a POST; /api/personal ya no devuelve passwords
+    de empleados).
+
+  > Las conexiones a BD ya no se quedan colgadas si un TPV esta lento:
+    cada operacion tiene timeout de 15 s y todas las conexiones se cierran
+    en finally (~30 endpoints auditados — adios fugas de conexion).
+
+  > Los botones ya no se quedan deshabilitados cuando hay un error de red.
+    Antes habia que recargar la pagina; ahora se rehabilitan solos.
+
+  > El editor automatico de hibernateCentral.cfg.xml hace BACKUP antes
+    de escribir y valida que el XML resultante es correcto. Una operacion
+    fallida ya no puede dejar a GARUM sin arrancar (visita fisica al TPV).
+
+  > Mensajes psycopg2 ya no se envian al cliente — el cliente recibe un
+    mensaje generico ("No se pudo conectar con el TPV") y el detalle
+    tecnico (codigos psycopg2, columnas, schemas) se guarda en el log
+    local del servidor (donde el tecnico lo necesita para diagnosticar).
+
+  > Limpieza de ~310 lineas: 6 endpoints "single-TPV" deprecados sustituidos
+    por los /red (aplicar a todos los TPVs a la vez), 4 endpoints sin
+    callers, helpers JS duplicados, re-imports redundantes.
+
+  > "Polls fantasma" del asistente de Instalacion ya se cancelan al
+    cambiar de pestana o al minimizar la ventana — sin acumulacion
+    de peticiones en segundo plano.
+
+HOTFIXES v5.12 (post-auditoria):
+  > "Hacer principal" aparece tambien en TPVs DESACTIVADOS cuando no
+    hay ningun principal en la red (antes te quedabas sin salida).
+  > Pestana "Propiedades de integracion" lee la BD al entrar (antes
+    habia que pulsar manualmente "Leer BD").
+  > No-cache en /api/*: el navegador NUNCA reutiliza respuestas viejas
+    despues de actualizar la version. Tras instalar v5.12 conviene un
+    Ctrl+F5 la primera vez para limpiar lo cacheado de la version anterior.
+
+
+CAMBIOS DE LAS ULTIMAS VERSIONES
+---------------------------------
+v5.11 — Medios de pago: borde punteado + icono editar en los 3 controles
+        editables de cada tarjeta. Sondas: numero_logico_concentrador solo
+        se replica al mismo numero_sonda en otros TPVs.
+v5.10 — Medios de pago: interruptor Activado/Desactivado y franja "Conexion
+        MPE" en la cabecera.
+v5.9  — Boton "Quitar sesion activa" en Panel. Nueva pestana "Series". Menu
+        "Integrados" pasa a "Medios de pago".
+v5.8  — Instalador a prueba de antivirus.
+v5.7  — Instalador offline (no requiere internet).
+        Historial completo en README.md.
+
+
+INSTALACION (solo la primera vez)
+----------------------------------
+1. Clic derecho en INSTALAR.bat
+2. "Ejecutar como administrador"
+3. Esperar menos de 1 minuto (no necesita internet)
+4. Se crea el acceso directo "GARUM TPV Manager" en el Escritorio
+5. Doble clic en ese acceso directo para abrir la app
+
+
+SI EL INSTALADOR SE CIERRA SOLO
+--------------------------------
+Es el antivirus, que bloquea el instalador.
+Anade una exclusion para la carpeta de instalacion
+(C:\GarumTPV o C:\GARUMTOOLS) y para la carpeta del
+paquete, o desactiva el antivirus el minuto que dura
+la instalacion. Luego vuelve a ejecutar INSTALAR.bat.
+
+
+USO DIARIO
+----------
+Doble clic en "GARUM TPV Manager" del Escritorio.
+O ejecuta el ARRANCAR.bat de la carpeta de instalacion
+(C:\GarumTPV\ o la ruta que elegiste al instalar).
+
+
+PANTALLA DE CONEXION
+--------------------
+Selecciona la IP del servidor en el desplegable:
+  - TPV 1 a TPV 4 (10.0.0.101 a 10.0.0.104)
+  - Este equipo (127.0.0.1)
+  - Otra IP (escribe manualmente)
+
+Introduce la contrasena de postgres (misma en todos los TPVs).
+La app detecta automaticamente quien es el Principal.
+
+
+ANTES DE OPERAR — HAZ UN BACKUP
+---------------------------------
+Pulsa "Backup config" (esquina superior izquierda).
+Exporta la configuracion completa de todos los TPVs a un .txt.
+
+
+PANEL DE TPVs — AVISOS IMPORTANTES
+------------------------------------
+"No apunta a: TPV X" (ambar):
+  El CopyDirectories de ese TPV no incluye la IP indicada.
+  Ejecuta la operacion correspondiente para corregirlo.
+
+"PRINCIPAL" con badge rojo + aviso de conflicto:
+  Dos TPVs tienen configuracion de principal simultaneamente.
+  Ocurre cuando un TPV vuelve de averia con su IP definitiva.
+  Usa "Dejar como secundario" para resolverlo.
+
+
+QUE ACTUALIZA LA APP EN CADA OPERACION
+----------------------------------------
+Todas las operaciones trabajan con dos bases de datos:
+  BD tpv          > tabla propiedad         (rutas de integracion)
+  BD controlpista > tabla local_config      (ip_server)
+  BD controlpista > tabla pos               (campo online)
+  BD tpv          > tabla sesion_tpv_activo (sesiones activas)
+
+ANULAR TPV (roto o que se quiere desactivar):
+  - tpv.propiedad: recalcula CopyDirectories en los otros TPVs
+  - controlpista.pos: online=FALSE en todos los accesibles
+  - sesion_tpv_activo: DELETE WHERE id_tpv=N en todos los accesibles
+  - controlpista.ip_server: NO SE TOCA
+    Se actualizara automaticamente cuando ejecutes "Hacer principal"
+
+REINTEGRAR COMO SECUNDARIO:
+  - tpv.propiedad: configura rutas apuntando al principal actual
+  - controlpista.ip_server: actualizado -> principal actual
+  - controlpista.pos: online=TRUE en todos los accesibles
+  - sesion_tpv_activo: NO SE TOCA (GARUM la crea al arrancar)
+  - Aviso con instrucciones para hibernateCentral.cfg.xml
+
+HACER PRINCIPAL (cambia el principal, actualiza ip_server en TODOS):
+  - Actualiza TODOS los campos en TODOS los TPVs accesibles
+  - controlpista.ip_server: ACTUALIZADO EN TODOS -> nuevo principal
+  - controlpista.pos: sincronizado en todos
+  - sesion_tpv_activo: borra sesiones de TPVs caidos
+  - TPV caido no se toca
+  - Instrucciones exactas para hibernateCentral.cfg.xml
+
+DEJAR COMO SECUNDARIO (TPV vuelve con conflicto de principal):
+  - Configura ese TPV como secundario apuntando al principal actual
+  - controlpista.ip_server: actualizado -> principal actual
+  - Recalcula CopyDirectories en todos para incluirle
+  - Aviso para hibernateCentral.cfg.xml
+
+
+CUANDO SE ACTUALIZA ip_server EN controlpista
+----------------------------------------------
+  Anular TPV             -> NO SE TOCA
+  Hacer principal        -> SI, en TODOS los TPVs accesibles
+  Reintegrar secundario  -> SI, en ese TPV
+  Dejar como secundario  -> SI, en ese TPV
+
+
+TABLA sesion_tpv_activo
+-----------------------
+  id_tpv = ultimo octeto de la IP menos 100
+  10.0.0.101 -> id_tpv=1,  10.0.0.102 -> id_tpv=2  etc.
+
+  Anular            -> DELETE WHERE id_tpv=N en todos los accesibles
+  Cambiar principal -> DELETE de TPVs caidos en todos los accesibles
+  Reintegrar        -> NO SE TOCA (GARUM la crea al arrancar)
+  Dejar secundario  -> NO SE TOCA
+
+
+PESTANA IMPRESORAS
+------------------
+Pestana "Impresoras" en el header.
+Lee y edita la tabla configuracion_impresion de cada TPV:
+  - Nombre impresora ticket por defecto
+  - Ruta impresora local facturas
+  - Nombre driver impresora
+  - Puerto impresora (desplegable con puertos Windows detectados)
+  - Formato impresion facturas (T o 4)
+
+Los desplegables de nombre e impresora detectan automaticamente
+las impresoras instaladas en Windows. Si no se detectan, permite
+escribir manualmente.
+
+AVISO: esta pestana muestra la configuracion del equipo local
+(127.0.0.1). Para editar otro TPV, conecta directamente a su IP.
+
+
+PESTANA CONTROL PISTA
+---------------------
+Ver y modificar manualmente ip_server y pos de cada TPV.
+  - Verde: ip_server apunta al principal correcto
+  - Rojo:  ip_server desincronizado
+  - Botones para cambiar ip_server y pos.online individualmente
+
+En condiciones normales no es necesario usarla manualmente.
+Las operaciones del panel actualizan ip_server automaticamente.
+
+
+FICHEROS HIBERNATE
+------------------
+Solo hay que editar: C:\GARUM\hibernateCentral.cfg.xml
+El fichero hibernate.cfg.xml (sin Central) NUNCA se toca.
+
+La app muestra instrucciones exactas con boton "Copiar".
+Los TPVs caidos se marcan para editarlos cuando arranquen.
+
+
+AJUSTES
+-------
+Pestana "Ajustes" en el header:
+  - Editar nombre e IP de cada TPV
+  - Anadir o eliminar TPVs
+  - Restaurar valores por defecto (10.0.0.101-104)
+
+
+DIAGNOSTICO
+-----------
+Si algo falla al conectar:
+http://127.0.0.1:5050/diagnostico
+
+
+DESINSTALACION
+--------------
+1. Cierra la app
+2. Borra la carpeta de instalacion (C:\GarumTPV, C:\GARUMTOOLS o la que elegiste)
+3. Borra el acceso directo del Escritorio
+
+
+DOCUMENTACION COMPLETA
+----------------------
+Ver README.md en esta misma carpeta.
+
+VERSION ACTUAL: v7.3

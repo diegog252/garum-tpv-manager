@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>GARUM - Diagnóstico</title>
+<style>
+body{font-family:monospace;background:#0e1117;color:#e8eaf0;padding:30px;font-size:14px}
+input{background:#1e2537;border:1px solid #444;color:#fff;padding:8px 12px;border-radius:5px;font-family:monospace;font-size:13px;width:280px;margin-bottom:8px;display:block}
+button{background:#4f8ef7;color:#fff;border:none;padding:10px 20px;border-radius:5px;font-size:14px;cursor:pointer;margin:5px 5px 5px 0}
+button.g{background:#22c55e}
+pre{background:#161b27;border:1px solid #333;padding:14px;border-radius:6px;white-space:pre-wrap;word-break:break-all;margin-top:14px;min-height:80px;font-size:12px}
+label{font-size:11px;color:#8892a4;margin-bottom:3px;display:block}
+</style>
+</head>
+<body>
+<h2 style="color:#4f8ef7;margin-bottom:20px">GARUM TPV Manager — Diagnóstico de conexión</h2>
+
+<label>Host / IP</label>
+<input id="host" value="127.0.0.1">
+<label>Puerto</label>
+<input id="port" value="5432">
+<label>Base de datos</label>
+<input id="db" value="tpv">
+<label>Usuario</label>
+<input id="user" value="postgres">
+<label>Contraseña</label>
+<input id="pass" type="password">
+
+<br>
+<button onclick="paso1()">1. Obtener token CSRF</button>
+<button onclick="paso2()">2. Probar conexión</button>
+<button class="g" onclick="pasoAuto()">▶ Conectar automático</button>
+
+<pre id="out">Pulsa "▶ Conectar automático" para empezar...</pre>
+
+<script>
+let token = '';
+const out = document.getElementById('out');
+
+function log(msg, color) {
+  const ts = new Date().toLocaleTimeString();
+  out.innerHTML += `<span style="color:${color||'#e8eaf0'}">[${ts}] ${msg}</span>\n`;
+  out.scrollTop = out.scrollHeight;
+}
+
+async function paso1() {
+  out.innerHTML = '';
+  log('Solicitando token CSRF...', '#3b82f6');
+  try {
+    const r = await fetch('/api/csrf-token');
+    log(`HTTP status: ${r.status}`, '#8892a4');
+    const txt = await r.text();
+    log(`Respuesta raw: ${txt}`, '#8892a4');
+    const d = JSON.parse(txt);
+    token = d.token || '';
+    if (token) {
+      log(`Token obtenido: ${token.slice(0,16)}... (${token.length} chars)`, '#22c55e');
+    } else {
+      log('TOKEN VACÍO — fallo en /api/csrf-token', '#ef4444');
+    }
+  } catch(e) {
+    log(`ERROR: ${e.message}`, '#ef4444');
+  }
+}
+
+async function paso2() {
+  if (!token) { log('Primero obtén el token (paso 1)', '#f59e0b'); return; }
+  const body = {
+    host: document.getElementById('host').value,
+    port: document.getElementById('port').value,
+    dbname: document.getElementById('db').value,
+    user: document.getElementById('user').value,
+    password: document.getElementById('pass').value,
+  };
+  log(`Enviando POST /api/conectar con token: ${token.slice(0,16)}...`, '#3b82f6');
+  log(`Body: ${JSON.stringify({...body, password:'***'})}`, '#8892a4');
+  try {
+    const r = await fetch('/api/conectar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
+      body: JSON.stringify(body)
+    });
+    log(`HTTP status: ${r.status}`, '#8892a4');
+    const txt = await r.text();
+    log(`Respuesta raw: ${txt}`, r.ok ? '#22c55e' : '#ef4444');
+    const d = JSON.parse(txt);
+    if (d.ok) {
+      log('✓ CONEXIÓN EXITOSA — La app debería funcionar', '#22c55e');
+      log('Recarga http://127.0.0.1:5050 para usar la app normal', '#22c55e');
+    } else {
+      log(`✗ Error: ${d.error}`, '#ef4444');
+    }
+  } catch(e) {
+    log(`ERROR inesperado: ${e.message}`, '#ef4444');
+  }
+}
+
+async function pasoAuto() {
+  out.innerHTML = '';
+  await paso1();
+  if (token) await paso2();
+}
+</script>
+</body>
+</html>
