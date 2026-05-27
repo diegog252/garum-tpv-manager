@@ -1,7 +1,37 @@
-GARUM TPV Manager v7.5
+GARUM TPV Manager v7.6
 =======================
 Herramienta interna para gestionar la integracion de TPVs GARUM.
 Diseno corporativo 4GL Solutions.
+
+
+NOVEDADES v7.6 — PASO 0 "DESCARGAR INSTALADORES" EN REINTEGRAR + NUEVO TPV
+--------------------------------------------------------------------------
+Version 100% compatible con v7.5. Solo añade una funcionalidad.
+
+PASO 0 (NUEVO) en los modulos "🔄 Reintegrar TPV" y "🔧 Nuevo TPV":
+  Bloque colapsable al inicio que descarga e instala automaticamente los
+  programas necesarios para arrancar el TPV (BBDD PostgreSQL, Java, GARUM).
+
+  Que hace al pulsar "▶ Descargar y descomprimir":
+    1. Descarga Setup-GARUM.zip desde la nube de 4GL
+       (https://4gl.fortiddns.com:1604/descargas/Setup-GARUM.zip)
+       a C:\GARUMTOOLS\Setup-GARUM.zip.
+    2. Lo descomprime automaticamente en C:\GARUMTOOLS\Setup-GARUM\.
+    3. Muestra el path destino y los siguientes pasos manuales:
+       ejecutar los instaladores BBDD → Java → GARUM en ese orden.
+
+  Tras instalar manualmente esos 3 programas, vuelves al modulo (Reintegrar
+  o Nuevo TPV) y continuas con el resto de pasos (Usuario sistema, etc.).
+
+  Detalles tecnicos:
+    > Descarga atomica: .tmp + replace (si la conexion se corta, no deja
+      ZIP corrupto en su sitio).
+    > Fallback SSL: si el certificado de FortiDDNS falla la verificacion
+      estandar, reintenta sin verify (cubre cert auto-firmado).
+    > Defensa zip-slip al descomprimir (rechaza entradas con paths que
+      salgan del directorio destino).
+    > Si la descompresion falla, el ZIP sigue descargado y se avisa al
+      tecnico para que lo descomprima a mano.
 
 
 NOVEDADES v7.5 — MODULO SERIES REDISENADO + REINTEGRAR MEJORADO

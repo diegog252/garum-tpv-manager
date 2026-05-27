@@ -852,7 +852,7 @@ html,body{
   <div class="sb-header">
     <div class="sb-logo">
       <div class="sb-logo-icon">G</div>
-      <span class="sb-logo-text">Mantenimiento<br>Garum <span style="font-size:10px;font-weight:400;opacity:.5;font-family:var(--mono)">v7.5</span></span>
+      <span class="sb-logo-text">Mantenimiento<br>Garum <span style="font-size:10px;font-weight:400;opacity:.5;font-family:var(--mono)">v7.6</span></span>
     </div>
     <button class="sb-toggle" id="sbToggle" onclick="toggleSidebar()" title="Colapsar menú">‹</button>
   </div>
@@ -1377,6 +1377,27 @@ html,body{
       <div class="inst-prog-step" id="instProgBtn5">5 · Resultado</div>
     </div>
 
+    <!-- PASO 0: descarga del Setup-GARUM.zip (BBDD + Java + GARUM) desde la nube 4GL.
+         Bloque IDÉNTICO al de page-reintegrar — usa clases en vez de IDs para que ambas
+         instancias funcionen sin colisiones de getElementById. -->
+    <details class="inst-section setup-garum-block" style="margin-bottom:16px">
+      <summary style="cursor:pointer;font-weight:600;color:var(--text);padding:4px 0;list-style:none;display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;font-weight:700;background:var(--blue-bg);color:var(--blue);padding:2px 8px;border-radius:6px;border:1px solid var(--blue-bd)">PASO 0</span>
+        📦 Descargar instaladores
+        <span style="margin-left:auto;font-size:12px;color:var(--text3);font-weight:400">clic para abrir/cerrar</span>
+      </summary>
+      <div style="padding-top:12px;border-top:1px solid var(--border);margin-top:8px">
+        <div style="font-size:13px;color:var(--text2);line-height:1.4;margin-bottom:12px">
+          Descarga y descomprime los instaladores en <code>C:\GARUMTOOLS\Setup-GARUM\</code>.
+        </div>
+        <button class="btn btn-d btn-sm setup-garum-btn" onclick="setupGarumDescargar()">
+          ▶ Descargar y descomprimir
+        </button>
+        <span class="setup-garum-hint" style="margin-left:12px;font-size:12px;color:var(--text2)"></span>
+        <div class="setup-garum-resultado" style="display:none;margin-top:14px"></div>
+      </div>
+    </details>
+
     <!-- ── PASO 1: Credenciales ── -->
     <div id="instPaso1">
       <div class="inst-section">
@@ -1513,6 +1534,27 @@ html,body{
       <span class="ai">ℹ</span>
       <div>Para TPVs que <strong>ya estaban en la red</strong>. Si es nuevo → <a href="#" onclick="event.preventDefault();irA('instalacion')">🔧 Nuevo TPV</a>.</div>
     </div>
+
+    <!-- PASO 0: descarga del Setup-GARUM.zip (BBDD + Java + GARUM) desde la nube 4GL.
+         Bloque DUPLICADO en page-instalacion — usa clases en vez de IDs para que ambas
+         instancias funcionen sin colisiones de getElementById. -->
+    <details class="inst-section setup-garum-block" style="margin-bottom:16px">
+      <summary style="cursor:pointer;font-weight:600;color:var(--text);padding:4px 0;list-style:none;display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;font-weight:700;background:var(--blue-bg);color:var(--blue);padding:2px 8px;border-radius:6px;border:1px solid var(--blue-bd)">PASO 0</span>
+        📦 Descargar instaladores
+        <span style="margin-left:auto;font-size:12px;color:var(--text3);font-weight:400">clic para abrir/cerrar</span>
+      </summary>
+      <div style="padding-top:12px;border-top:1px solid var(--border);margin-top:8px">
+        <div style="font-size:13px;color:var(--text2);line-height:1.4;margin-bottom:12px">
+          Descarga y descomprime los instaladores en <code>C:\GARUMTOOLS\Setup-GARUM\</code>.
+        </div>
+        <button class="btn btn-d btn-sm setup-garum-btn" onclick="setupGarumDescargar()">
+          ▶ Descargar y descomprimir
+        </button>
+        <span class="setup-garum-hint" style="margin-left:12px;font-size:12px;color:var(--text2)"></span>
+        <div class="setup-garum-resultado" style="display:none;margin-top:14px"></div>
+      </div>
+    </details>
 
     <!-- PASO PREVIO: crear el usuario Windows local "integracion4gl" que la app
          usa para autenticar el robocopy a \\IP\C$\GARUM. Debe existir en TODOS
@@ -7693,6 +7735,83 @@ function _serMapaRender(r){
   });
   tab.innerHTML = sections.join('');
 }
+
+// ============================================================================
+// PASO 0 — SETUP-GARUM: descarga del ZIP de instaladores desde la nube 4GL.
+// Bloque HTML duplicado en page-reintegrar y page-instalacion. Usa CLASES
+// (.setup-garum-btn / .setup-garum-hint / .setup-garum-resultado) en vez de
+// IDs para no colisionar entre las 2 instancias. Esta funcion actualiza
+// AMBAS via querySelectorAll.
+// ============================================================================
+
+async function setupGarumDescargar(){
+  var btns  = document.querySelectorAll('.setup-garum-btn');
+  var hints = document.querySelectorAll('.setup-garum-hint');
+  var ress  = document.querySelectorAll('.setup-garum-resultado');
+  // Lock UI durante la descarga
+  btns.forEach(function(b){ b.disabled = true; });
+  hints.forEach(function(h){
+    h.textContent = '⏳ Descargando… (puede tardar varios minutos)';
+    h.style.color = 'var(--text2)';
+  });
+  ress.forEach(function(r){ r.style.display='none'; r.innerHTML=''; });
+
+  var r;
+  try {
+    r = await post('/api/setup-garum/descargar', {});
+  } catch(e){
+    hints.forEach(function(h){
+      h.textContent = '✕ Error de red: '+String(e);
+      h.style.color = 'var(--red-s)';
+    });
+    btns.forEach(function(b){ b.disabled = false; });
+    return;
+  }
+
+  if(r && r.ok){
+    var mb = (r.size_mb||0).toFixed(1);
+    var unzipped = !!r.unzip_ok;
+    var nFiles = r.files_count || 0;
+    var extractDir = r.extract_dir || 'C:\\GARUMTOOLS\\Setup-GARUM';
+    hints.forEach(function(h){
+      h.textContent = unzipped
+        ? ('✓ Listo · ' + mb + ' MB · ' + nFiles + ' ficheros')
+        : ('✓ Descargado (' + mb + ' MB) — descompresión falló, hazlo a mano');
+      h.style.color = unzipped ? 'var(--green)' : 'var(--amber)';
+    });
+    var html;
+    if(unzipped){
+      html = '<div class="al al-s" style="display:flex;gap:8px;align-items:flex-start">'
+           + '<span class="ai">✓</span>'
+           + '<div><strong>Listo</strong> — abre la carpeta '
+           + '<code>'+H(extractDir)+'</code> y ejecuta los instaladores: '
+           + '<strong>BBDD → Java → GARUM</strong>.</div></div>';
+    } else {
+      html = '<div class="al al-w" style="display:flex;gap:8px;align-items:flex-start">'
+           + '<span class="ai">⚠</span>'
+           + '<div>ZIP descargado en <code>'+H(r.zip_path||'?')+'</code> pero la descompresión falló. '
+           + 'Descomprime manualmente y ejecuta los instaladores BBDD → Java → GARUM.</div></div>';
+    }
+    ress.forEach(function(r){ r.innerHTML = html; r.style.display = ''; });
+  } else {
+    var err = (r && r.error) || 'Error desconocido';
+    hints.forEach(function(h){
+      h.textContent = '✕ ' + err;
+      h.style.color = 'var(--red-s)';
+    });
+    ress.forEach(function(rEl){
+      rEl.innerHTML = '<div class="al al-e"><span class="ai">✕</span>'
+                    + '<div><strong>No se ha podido descargar.</strong><br>'
+                    + '<span style="font-size:12px;color:var(--text2)">'+H(err)+'</span><br>'
+                    + '<span style="font-size:12px">Comprueba que tienes conexión a internet y que el dominio '
+                    + '<code>4gl.fortiddns.com:1604</code> es accesible.</span>'
+                    + '</div></div>';
+      rEl.style.display = '';
+    });
+  }
+  btns.forEach(function(b){ b.disabled = false; });
+}
+
 
 // ============================================================================
 // MODULO USUARIO SISTEMA (v7.x) — crea usuario Windows local hardcoded

@@ -1,6 +1,19 @@
 """
-GARUM TPV Manager - Backend v7.5
+GARUM TPV Manager - Backend v7.6
 ==================================
+v7.6:   Nuevo PASO 0 "Descargar instaladores" en Reintegrar TPV + Nuevo TPV.
+        Bloque <details> colapsable al principio de ambos modulos que:
+          1. Descarga https://4gl.fortiddns.com:1604/descargas/Setup-GARUM.zip
+             a C:\\GARUMTOOLS\\Setup-GARUM.zip (escritura atomica .tmp+replace,
+             fallback SSL no-verify si el cert de FortiDDNS falla).
+          2. Descomprime automaticamente a C:\\GARUMTOOLS\\Setup-GARUM\\
+             (zipfile + defensa zip-slip). Limpia carpeta destino antes.
+          3. Muestra al tecnico el path destino + "ejecuta BBDD, Java, GARUM".
+        Endpoints: GET /api/setup-garum/info, POST /api/setup-garum/descargar.
+        El bloque HTML esta duplicado en page-reintegrar y page-instalacion
+        pero usa clases en vez de IDs para que la misma funcion JS controle
+        ambas instancias sin colisiones de getElementById.
+
 v7.5:   Nuevos modulos y mejoras de UX sobre v7.4, todos compatibles.
         16 cambios acumulados desde v7.4:
 
@@ -7777,6 +7790,124 @@ def _crear_usuario_windows_local():
     log(f"[usuario-sistema] {_USYS_USER}: resultado={resultado}", "ok" if ok else "warn")
     return {"ok": ok, "resumen": resumen, "resultado": resultado,
             "user": _USYS_USER, "pasos": pasos}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SETUP-GARUM (PASO 0): descarga del ZIP con los instaladores (BBDD + Java +
+# GARUM) desde la nube 4GL. Usado al principio de Reintegrar TPV y Nuevo TPV.
+# Endpoint sincrono: bloquea hasta que termine la descarga. Si el ZIP fuera
+# muy grande convendria pasar a job async, pero para los tamanos actuales
+# (<= 300 MB tipico) la respuesta tarda 30-90 s y el frontend muestra spinner.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SETUP_GARUM_URL     = "https://4gl.fortiddns.com:1604/descargas/Setup-GARUM.zip"
+_SETUP_GARUM_DIR     = r"C:\GARUMTOOLS"
+_SETUP_GARUM_PATH    = r"C:\GARUMTOOLS\Setup-GARUM.zip"
+_SETUP_GARUM_EXTRACT = r"C:\GARUMTOOLS\Setup-GARUM"
+
+
+@app.route("/api/setup-garum/info")
+@need_conn
+def api_setup_garum_info():
+    """Estado del ZIP local — para que el frontend sepa si ya esta descargado."""
+    existe = os.path.isfile(_SETUP_GARUM_PATH)
+    size = os.path.getsize(_SETUP_GARUM_PATH) if existe else 0
+    try:
+        mtime = (os.path.getmtime(_SETUP_GARUM_PATH) if existe else 0)
+    except Exception:
+        mtime = 0
+    return jsonify({"ok": True, "url": _SETUP_GARUM_URL,
+                    "path": _SETUP_GARUM_PATH,
+                    "existe": existe, "size": int(size),
+                    "mtime": int(mtime)})
+
+
+@app.route("/api/setup-garum/descargar", methods=["POST"])
+@csrf
+@need_conn
+def api_setup_garum_descargar():
+    """Descarga Setup-GARUM.zip desde la URL fija de 4GL y lo DESCOMPRIME
+    en C:\\GARUMTOOLS\\Setup-GARUM\\ — listo para que el tecnico ejecute
+    los instaladores directamente sin paso manual de descompresion.
+
+    Returns: {ok, zip_path, extract_dir, size_mb, files_count, unzip_ok}
+    """
+    if sess.get("demo"):
+        return jsonify({"ok": True, "demo": True,
+                        "zip_path": _SETUP_GARUM_PATH,
+                        "extract_dir": _SETUP_GARUM_EXTRACT,
+                        "size_mb": 0.0, "files_count": 0, "unzip_ok": True})
+    import urllib.request, ssl, shutil, zipfile
+    try:
+        os.makedirs(_SETUP_GARUM_DIR, exist_ok=True)
+        # Escritura atomica: .tmp + renombrar.
+        tmp_path = _SETUP_GARUM_PATH + ".tmp"
+        log(f"[setup-garum] Descargando {_SETUP_GARUM_URL} → {_SETUP_GARUM_PATH}", "info")
+
+        def _descargar(ctx):
+            req = urllib.request.Request(
+                _SETUP_GARUM_URL,
+                headers={"User-Agent": "GARUM-TPV-Manager/7.5"},
+            )
+            with urllib.request.urlopen(req, timeout=600, context=ctx) as resp:
+                with open(tmp_path, "wb") as f:
+                    shutil.copyfileobj(resp, f, length=64*1024)
+
+        try:
+            _descargar(ssl.create_default_context())
+        except ssl.SSLError as ssl_err:
+            log(f"[setup-garum] SSL verify fallo ({ssl_err}); reintentando sin verify", "warn")
+            _descargar(ssl._create_unverified_context())
+
+        if not os.path.isfile(tmp_path) or os.path.getsize(tmp_path) == 0:
+            raise RuntimeError("La descarga termino pero el fichero esta vacio")
+        os.replace(tmp_path, _SETUP_GARUM_PATH)
+        size = os.path.getsize(_SETUP_GARUM_PATH)
+        size_mb = round(size / 1024 / 1024, 1)
+        log(f"[setup-garum] OK descarga — {size_mb} MB", "ok")
+
+        # ── Descompresion automatica ──────────────────────────────────
+        # Limpia la carpeta de extraccion anterior (si existe) — evita
+        # mezclar restos de instalaciones previas. Es seguro porque la
+        # carpeta es exclusiva (C:\GARUMTOOLS\Setup-GARUM\).
+        unzip_ok = False
+        files_count = 0
+        try:
+            if os.path.isdir(_SETUP_GARUM_EXTRACT):
+                shutil.rmtree(_SETUP_GARUM_EXTRACT, ignore_errors=True)
+            os.makedirs(_SETUP_GARUM_EXTRACT, exist_ok=True)
+            with zipfile.ZipFile(_SETUP_GARUM_PATH, "r") as zf:
+                # Defensa contra path traversal (zip slip): rechazamos
+                # entradas cuyo path resuelto se sale del directorio destino.
+                base_abs = os.path.abspath(_SETUP_GARUM_EXTRACT)
+                for member in zf.infolist():
+                    member_path = os.path.abspath(os.path.join(base_abs, member.filename))
+                    if not member_path.startswith(base_abs + os.sep) and member_path != base_abs:
+                        raise RuntimeError(f"Zip slip detectado: {member.filename}")
+                zf.extractall(_SETUP_GARUM_EXTRACT)
+                files_count = len(zf.namelist())
+            unzip_ok = True
+            log(f"[setup-garum] OK descomprimido — {files_count} ficheros en {_SETUP_GARUM_EXTRACT}", "ok")
+        except Exception as e_unzip:
+            msg = str(e_unzip).split("\n")[0]
+            log(f"[setup-garum] WARN no se pudo descomprimir: {msg}", "warn")
+            # El ZIP esta descargado correctamente — el tecnico puede descomprimirlo a mano.
+
+        return jsonify({"ok": True,
+                        "zip_path": _SETUP_GARUM_PATH,
+                        "extract_dir": _SETUP_GARUM_EXTRACT,
+                        "size": int(size), "size_mb": size_mb,
+                        "unzip_ok": unzip_ok,
+                        "files_count": files_count})
+    except Exception as e:
+        try:
+            if os.path.isfile(_SETUP_GARUM_PATH + ".tmp"):
+                os.remove(_SETUP_GARUM_PATH + ".tmp")
+        except Exception:
+            pass
+        msg = str(e).split("\n")[0]
+        log(f"[setup-garum] ERROR: {msg}", "error")
+        return jsonify({"ok": False, "error": msg}), 500
 
 
 @app.route("/api/usuario-sistema/info")

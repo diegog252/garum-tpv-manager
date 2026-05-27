@@ -6,7 +6,7 @@ cls
 
 echo.
 echo  ============================================================
-echo   GARUM TPV Manager v7.5 - Instalador para Windows 64 bits
+echo   GARUM TPV Manager v7.6 - Instalador para Windows 64 bits
 echo  ============================================================
 echo.
 echo  Instalador OFFLINE: solo copia y extrae ficheros.
@@ -112,7 +112,7 @@ echo.
 
 REM -- Acceso directo en el escritorio -----------------------------------------
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$ws=New-Object -ComObject WScript.Shell; $s=$ws.CreateShortcut([Environment]::GetFolderPath('CommonDesktopDirectory')+'\GARUM TPV Manager.lnk'); $s.TargetPath='!INST!\ARRANCAR.bat'; $s.WorkingDirectory='!INST!'; $s.Description='GARUM TPV Manager v7.5'; $s.Save()"
+ "$ws=New-Object -ComObject WScript.Shell; $s=$ws.CreateShortcut([Environment]::GetFolderPath('CommonDesktopDirectory')+'\GARUM TPV Manager.lnk'); $s.TargetPath='!INST!\ARRANCAR.bat'; $s.WorkingDirectory='!INST!'; $s.Description='GARUM TPV Manager v7.6'; $s.Save()"
 
 REM -- Listo -------------------------------------------------------------------
 color 0A
