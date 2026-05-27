@@ -1,6 +1,87 @@
 """
-GARUM TPV Manager - Backend v7.4
+GARUM TPV Manager - Backend v7.5
 ==================================
+v7.5:   Nuevos modulos y mejoras de UX sobre v7.4, todos compatibles.
+        16 cambios acumulados desde v7.4:
+
+        SERIES — REDISENO COMPLETO DEL MODULO
+        --------------------------------------
+        1. Sub-tab "✏ Marcar descripciones": añade el sufijo (N) al campo
+           serie.descripcion de las series propias=TRUE. Convencion del
+           cliente: el N entre parentesis identifica al TPV propietario.
+           Idempotente (no duplica si ya esta marcado). RTRIM antes de
+           concatenar para evitar espacios feos ("X (1)" → "X(1)").
+        2. Sub-tab "🗺 Mapa Series → TPV" (NUEVA, default): vista de red
+           consolidada. Escanea en paralelo todos los TPVs accesibles y
+           muestra las series propias de cada uno con badges informativos
+           segun las booleanas de schema (factura/simplificada/no_venta/
+           rectificativa/comision/credito/contado/externo/firma/AEAT).
+           Detecta automaticamente conflictos (misma serie marcada como
+           propia en varios TPVs — sintoma de mala configuracion).
+        3. Sub-tab "📋 Ver series" ELIMINADA: el Mapa Series → TPV cubre
+           su funcion con vista de red en vez de single-TPV.
+        4. Endpoint /api/series/marcar/global: marcado avanzado en 2
+           fases. Fase 1 descubre propietarios escaneando toda la red;
+           fase 2 en cada TPV marca CADA serie (propias Y ajenas) con
+           el (N) del propietario REAL. Idempotencia conservadora:
+           respeta cualquier (N) preexistente sin machacarlo.
+        5. /api/series/marcar/global acepta body {dry_run:bool}: si
+           True hace SELECT sin UPDATE, devuelve hasta 5 ejemplos por
+           TPV (antes/despues). Usado por el preview previo en UI.
+        6. UI flujo unificado: un solo boton "🔭 Previsualizar marcado
+           global" → resumen visual con DRY RUN banner + tabla por TPV
+           con ejemplos → boton "✓ Aplicar cambios" cuando el tecnico
+           ha revisado. Reemplaza dos botones previos (TODA la red /
+           marcado global) que confundian.
+
+        REINTEGRAR TPV
+        ---------------
+        7. Permite reintegrar el propio TPV1 (rango 1..9, antes 2..9).
+           Caso real: TPV1 cayo y se reinstala desde el TPV que tomo
+           el rol de principal. Frontend + backend actualizados.
+        8. Auto-deteccion del principal vivo en la red (no asume TPV1).
+           Lee propiedad.BackupDirectoriesBOS de cada TPV: si NO empieza
+           por '//' (comentado), ese TPV es principal real. La columna
+           tpv.principal=TRUE NO sirve para esto porque en cada BD
+           identifica al propio TPV (autoreferencia local).
+        9. Campos renombrados a lenguaje mas directo:
+              "IP del TPV principal / origen" → "IP del TPV a clonar"
+              "IP local de este TPV"          → "IP local de este equipo"
+           Hints reescritos sin jerga tecnica.
+
+        USUARIO SISTEMA
+        ---------------
+       10. Mensaje claro cuando la pwd no cumple la politica de Windows
+           local: detecta InvalidPasswordException de PowerShell y
+           emite instrucciones especificas ("Abre secpol.msc → Directiva
+           de contrasenas → deshabilita Complejidad + Longitud minima").
+           Antes mostraba el error tecnico crudo.
+
+        UX GENERAL
+        ----------
+       11. Paleta visual mas calida (paper-like #F6F5F1). Sidebar y
+           topbar comparten el fondo crema — solo las tarjetas son
+           blancas (estilo Notion/iA Writer). Reduce fatiga visual
+           en sesiones largas.
+       12. Textos descriptivos cortados a 1-2 lineas en sub-tabs de
+           Series. Los tecnicos no leen parrafos largos.
+
+        FIXES INTERNOS
+        --------------
+       13. Typo sess.get("pwd") → sess.get("password") en 4 endpoints
+           nuevos que rompian con "fe_sendauth: no password supplied".
+       14. /api/series/marcar/red: quitado filtro `tpv.accesible` (se
+           desactualiza entre escaneos) y delegado al try/except del
+           connect. Frontend usa claves nativas del backend para que
+           rellenarOvRed las pinte directamente; nuevo campo `info`
+           opcional para mostrar detalles de exito.
+       15. /api/series/mapa-red: SELECT corregido (no existe la columna
+           `ticket` en schema serie; reemplazado por las booleanas
+           reales credito/contado/no_venta/sistema_venta_externo/
+           firma_digital/envio_fiscal).
+       16. Otros pulidos: banner v7.4 → v7.5 en sidebar; algunos
+           tooltips reescritos.
+
 v7.4:   Mejoras de UX y reorganizacion sobre v7.3, todos compatibles.
         12 cambios acumulados desde v7.3:
 
@@ -215,7 +296,7 @@ v7.1:   Nuevo modulo "🔄 Reintegrar TPV" para reintegrar un TPV que YA estaba
             — separamos responsabilidades).
 
         UI minimalista (sin wizard de 5 pasos):
-          - 3 inputs editables con auto-fill: TPV a reintegrar (2..9),
+          - 3 inputs editables con auto-fill: TPV a reintegrar (1..9),
             IP del TPV principal/origen (10.0.0.101 por defecto),
             IP local de este TPV (auto = 10.0.0.10{num_tpv}).
           - Checkbox "Editar hibernate automáticamente" (ON por defecto).
@@ -229,7 +310,8 @@ v7.1:   Nuevo modulo "🔄 Reintegrar TPV" para reintegrar un TPV que YA estaba
         Defensa multi-nivel:
           - Validación cliente y servidor (formato IPv4 + whitelist _REDES).
           - val_host() reusado para ip_origen e ip_local.
-          - num_tpv obligatorio en [2,9] (TPV1 es la fuente, no destino).
+          - num_tpv obligatorio en [1,9] (v7.x+: incluye TPV1 para el caso
+            real de TPV1 caido reintegrado desde otro principal vivo).
           - 404 detect en polling: si el backend purga el job, se cancela
             el timer y se limpia sessionStorage (evita polls fantasma).
           - irA() y visibilitychange limpian reiState._pollTimer.
@@ -1635,6 +1717,571 @@ def api_series_numero_aplicar():
         if c:
             try: c.close()
             except Exception: pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MARCAR DESCRIPCIONES DE SERIES PROPIAS con (N) — script SQL del cliente:
+#   UPDATE serie SET descripcion = descripcion || '(' || N || ')'
+#   WHERE propia = TRUE
+# donde N son los digitos extraidos de `tpv.nombre` del TPV principal.
+# Idempotente: las series cuya descripcion ya contiene "(N)" se respetan.
+# Solo afecta al TPV LOCAL (127.0.0.1) — coherente con el resto de Series.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _extraer_num_de_nombre(nombre):
+    """Extrae los digitos de `nombre` (p.ej. 'TPV 2' -> '2', 'POS-12' -> '12').
+    Mimetiza el REGEXP_REPLACE del script SQL del cliente.
+    Devuelve string ('1', '12', ...) o None si no hay digitos."""
+    if not nombre:
+        return None
+    digits = "".join(ch for ch in str(nombre) if ch.isdigit())
+    return digits if digits else None
+
+
+@app.route("/api/series/marcar/preview")
+@need_conn
+def api_series_marcar_preview():
+    """Devuelve qué series propias se actualizarían y con qué descripción nueva.
+    Returns: {ok, num_tpv_principal, tpv_principal_nombre, items: [{serie,
+              descripcion_actual, descripcion_nueva, accion}], total}
+    Accion ∈ {actualizar, ya_marcada}.
+    """
+    c = None
+    try:
+        c = psycopg2.connect(host="127.0.0.1", port=5432, dbname="tpv",
+                             user="postgres", password=sess.get("password", ""),
+                             connect_timeout=5)
+        cur = c.cursor()
+        # 1) Encontrar el TPV principal y extraer N de su nombre
+        cur.execute("SELECT id_tpv, nombre FROM tpv "
+                    "WHERE principal = TRUE LIMIT 1")
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"ok": False,
+                            "error": "No hay ningún TPV con principal=TRUE en la BD local"}), 400
+        id_tpv_principal, nombre_principal = row
+        num = _extraer_num_de_nombre(nombre_principal)
+        if num is None:
+            # Fallback: usar id_tpv como número (caso BD vieja sin nombre)
+            num = str(id_tpv_principal)
+        marcador = f"({num})"
+
+        # 2) Listar series con propia=TRUE y calcular accion para cada una
+        cur.execute("SELECT serie, COALESCE(descripcion, '') AS descripcion "
+                    "FROM serie WHERE propia = TRUE ORDER BY serie")
+        items = []
+        for serie, descripcion in cur.fetchall():
+            if marcador in (descripcion or ""):
+                accion = "ya_marcada"
+                nueva  = descripcion
+            else:
+                accion = "actualizar"
+                # rstrip elimina espacios al final del original ANTES de concatenar
+                # — evita resultados feos como "Factura Simplificada (1)" (con
+                # espacio antes del parentesis). El espacio interno se respeta.
+                nueva  = (descripcion or "").rstrip() + marcador
+            items.append({
+                "serie": serie,
+                "descripcion_actual": descripcion or "",
+                "descripcion_nueva": nueva,
+                "accion": accion,
+            })
+        return jsonify({
+            "ok": True,
+            "num_tpv_principal": int(num) if num.isdigit() else num,
+            "tpv_principal_nombre": nombre_principal or "",
+            "items": items,
+            "total": len(items),
+        })
+    except Exception as ex:
+        msg = str(ex).split("\n")[0]
+        log(f"WARN api_series_marcar_preview: {msg}", "warn")
+        return jsonify({"ok": False,
+                        "error": "No se pudo leer la BD local"}), 500
+    finally:
+        if c:
+            try: c.close()
+            except Exception: pass
+
+
+@app.route("/api/series/marcar/aplicar", methods=["POST"])
+@csrf
+@need_conn
+def api_series_marcar_aplicar():
+    """Aplica los UPDATEs al TPV LOCAL (127.0.0.1). Body: {items: [{serie,
+    descripcion_nueva}, ...]}. Returns: {ok, actualizadas, no_encontradas, errores}.
+    """
+    data = request.json or {}
+    items = data.get("items", [])
+    if not isinstance(items, list) or not items:
+        return jsonify({"ok": False, "error": "Sin items a aplicar"}), 400
+    # Defensa: cada item debe ser dict con serie+descripcion_nueva
+    for it in items:
+        if not isinstance(it, dict) or not it.get("serie"):
+            return jsonify({"ok": False, "error": "Formato de items invalido"}), 400
+
+    c = None
+    actualizadas, no_encontradas, errores = [], [], []
+    try:
+        c = psycopg2.connect(host="127.0.0.1", port=5432, dbname="tpv",
+                             user="postgres", password=sess.get("password", ""),
+                             connect_timeout=5)
+        c.autocommit = False
+        cur = c.cursor()
+        for it in items:
+            serie = str(it.get("serie", "")).strip()
+            nueva = it.get("descripcion_nueva", "")
+            if nueva is None:
+                nueva = ""
+            if not serie:
+                continue
+            try:
+                # Solo actualizar si sigue siendo propia=TRUE — defensa frente
+                # a cambios concurrentes entre preview y aplicar.
+                cur.execute("UPDATE serie SET descripcion = %s "
+                            "WHERE serie = %s AND propia = TRUE",
+                            (nueva, serie))
+                if cur.rowcount == 1:
+                    actualizadas.append({"serie": serie, "descripcion_nueva": nueva})
+                elif cur.rowcount == 0:
+                    no_encontradas.append(serie)
+                else:
+                    errores.append({"serie": serie,
+                                    "error": f"{cur.rowcount} filas afectadas"})
+            except Exception as e_row:
+                errores.append({"serie": serie,
+                                "error": str(e_row).split("\n")[0]})
+        c.commit()
+        log(f"[series marcar] aplicado al local: ok={len(actualizadas)}, "
+            f"no_encontradas={len(no_encontradas)}, errores={len(errores)}",
+            "ok")
+        return jsonify({"ok": len(errores) == 0,
+                        "actualizadas": actualizadas,
+                        "no_encontradas": no_encontradas,
+                        "errores": errores})
+    except Exception as ex:
+        if c:
+            try: c.rollback()
+            except Exception: pass
+        msg = str(ex).split("\n")[0]
+        log(f"WARN api_series_marcar_aplicar: {msg}", "warn")
+        return jsonify({"ok": False,
+                        "error": "No se pudo aplicar al TPV local"}), 500
+    finally:
+        if c:
+            try: c.close()
+            except Exception: pass
+
+
+@app.route("/api/series/marcar/red", methods=["POST"])
+@csrf
+@need_conn
+def api_series_marcar_red():
+    """Aplica el marcado de descripciones en TODOS los TPVs accesibles en
+    paralelo. En cada TPV: localiza el row de tpv.principal=TRUE (que en
+    cada TPV identifica al propio TPV — la fila principal se replica a
+    nivel local con el id_tpv de cada uno), extrae los digitos del nombre y
+    actualiza serie.descripcion de las series con propia=TRUE que no tengan
+    ya el marcador (N).
+
+    Idempotente: en cada TPV se respetan las series ya marcadas.
+    """
+    if sess.get("demo"):
+        resultados = [{"host": t["ip"], "nombre": t["nombre"], "ok": True,
+                       "marcador": "(1)", "actualizadas": 0, "ya_marcadas": 14}
+                      for t in TPVS_CONOCIDOS]
+        return jsonify({"ok": True, "demo": True, "total": len(resultados),
+                        "ok_count": len(resultados), "fail_count": 0,
+                        "resultados": resultados})
+
+    pwd = sess.get("password", "")
+
+    def _apply_one(tpv):
+        # Patron estandar de los otros /red: NO filtrar por tpv.accesible
+        # (puede estar desactualizado entre escaneos). Confiamos en el
+        # try/except: si no se puede conectar, el error queda en el resultado.
+        host = tpv["ip"]
+        nombre_tpv = tpv.get("nombre", host)
+        c = None
+        try:
+            c = psycopg2.connect(host=host, port=5432, dbname="tpv",
+                                 user="postgres", password=pwd,
+                                 connect_timeout=5)
+            c.autocommit = False
+            cur = c.cursor()
+            # 1) Localizar el principal y extraer digitos del nombre
+            cur.execute("SELECT id_tpv, nombre FROM tpv "
+                        "WHERE principal = TRUE LIMIT 1")
+            row = cur.fetchone()
+            if not row:
+                return {"host": host, "nombre": nombre_tpv, "ok": False,
+                        "error": "Sin TPV con principal=TRUE en su BD"}
+            id_tpv_p, nombre_p = row
+            num = _extraer_num_de_nombre(nombre_p) or str(id_tpv_p)
+            marcador = f"({num})"
+
+            # 2) Contar las que YA estan marcadas (para reporting)
+            cur.execute("SELECT COUNT(*) FROM serie "
+                        "WHERE propia = TRUE AND descripcion LIKE %s",
+                        (f"%{marcador}%",))
+            ya_marcadas = int(cur.fetchone()[0] or 0)
+
+            # 3) Actualizar las que no tienen el marcador.
+            # RTRIM al original ANTES de concatenar para evitar espacios feos
+            # al final ("Factura Simplificada (1)" → "Factura Simplificada(1)").
+            cur.execute(
+                "UPDATE serie "
+                "SET descripcion = RTRIM(COALESCE(descripcion, '')) || %s "
+                "WHERE propia = TRUE "
+                "  AND (descripcion IS NULL OR descripcion NOT LIKE %s)",
+                (marcador, f"%{marcador}%"))
+            actualizadas = cur.rowcount
+            c.commit()
+
+            return {"host": host, "nombre": nombre_tpv, "ok": True,
+                    "marcador": marcador,
+                    "actualizadas": int(actualizadas),
+                    "ya_marcadas": ya_marcadas}
+        except Exception as e:
+            if c:
+                try: c.rollback()
+                except Exception: pass
+            return {"host": host, "nombre": nombre_tpv, "ok": False,
+                    "error": str(e).split("\n")[0]}
+        finally:
+            if c:
+                try: c.close()
+                except Exception: pass
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        resultados = list(ex.map(_apply_one, TPVS_CONOCIDOS))
+    ok_count = sum(1 for r in resultados if r.get("ok"))
+    fail_count = len(resultados) - ok_count
+    log(f"[series marcar /red] ok={ok_count} fail={fail_count}",
+        "ok" if fail_count == 0 else "warn")
+    return jsonify({"ok": fail_count == 0,
+                    "total": len(resultados),
+                    "ok_count": ok_count,
+                    "fail_count": fail_count,
+                    "resultados": resultados})
+
+
+@app.route("/api/series/marcar/global", methods=["POST"])
+@csrf
+@need_conn
+def api_series_marcar_global():
+    """Marca CADA serie en cada BD con (N) del propietario REAL — incluyendo
+    series ajenas que cada TPV tiene en su tabla pero pertenecen a otro.
+
+    Body opcional: {dry_run: bool} — si True, NO ejecuta UPDATEs (cuenta
+    pero no toca BD). Util para preview previo a la accion real.
+
+    Diferencia con /api/series/marcar/red:
+      - /red: cada TPV marca SOLO sus propia=TRUE con SU propio (N).
+      - /global: descubre el mapa de propietarios escaneando toda la red,
+        y luego en cada TPV marca CADA serie (propia o ajena) con el (N)
+        del propietario real. Las huerfanas (sin propietario en la red) se
+        dejan sin tocar.
+
+    Idempotencia conservadora: si la descripcion ya contiene cualquier
+    "(N)" actualmente, NO se toca — asume que el usuario sabe lo que hace.
+    Si NO tiene marcador, se aplica el del propietario.
+
+    Returns: {ok, dry_run, fase1:{propietarios, conflictos}, fase2:[{host,
+              nombre, ok, actualizadas, ya_marcadas, sin_propietario, error?}]}
+    """
+    if sess.get("demo"):
+        return jsonify({"ok": True, "demo": True, "dry_run": False,
+                        "fase1": {"propietarios": {}, "conflictos": []},
+                        "fase2": []})
+
+    data = request.json or {}
+    dry_run = bool(data.get("dry_run", False))
+
+    pwd = sess.get("password", "")
+    if not pwd:
+        return jsonify({"ok": False, "error": "Sin pwd en sesion"}), 401
+
+    # ── FASE 1: descubrir propietarios ───────────────────────────────────
+    # Por cada TPV vivo: leer sus series propia=TRUE + identidad.
+    def _descubrir(tpv):
+        host = tpv["ip"]
+        nombre = tpv.get("nombre", host)
+        c = None
+        try:
+            c = psycopg2.connect(host=host, port=5432, dbname="tpv",
+                                 user="postgres", password=pwd,
+                                 connect_timeout=5)
+            cur = c.cursor()
+            # Identidad local: id_tpv del row principal=TRUE
+            cur.execute("SELECT id_tpv, nombre FROM tpv "
+                        "WHERE principal = TRUE LIMIT 1")
+            row = cur.fetchone()
+            if not row:
+                return {"host": host, "nombre": nombre, "ok": False,
+                        "error": "Sin tpv.principal=TRUE en su BD",
+                        "num_tpv": None, "propias": []}
+            id_tpv_local, nombre_local = int(row[0]), row[1]
+            num_str = _extraer_num_de_nombre(nombre_local) or str(id_tpv_local)
+            # Series propias
+            cur.execute("SELECT serie FROM serie "
+                        "WHERE propia = TRUE AND serie IS NOT NULL")
+            propias = [r[0] for r in cur.fetchall()]
+            return {"host": host, "nombre": nombre, "ok": True,
+                    "num_tpv": id_tpv_local, "num_str": num_str,
+                    "propias": propias}
+        except Exception as e:
+            return {"host": host, "nombre": nombre, "ok": False,
+                    "error": str(e).split("\n")[0],
+                    "num_tpv": None, "propias": []}
+        finally:
+            if c:
+                try: c.close()
+                except Exception: pass
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        descubrimientos = list(ex.map(_descubrir, TPVS_CONOCIDOS))
+
+    # Construir mapping codigo_serie → (num_tpv, num_str). En caso de
+    # conflicto (mismo codigo como propia en >1 TPV), preferimos el de
+    # menor id_tpv (consistente con la heuristica de /red).
+    propietarios = {}        # codigo → (num_tpv, num_str)
+    conflictos_por_serie = {}  # codigo → [num_tpv, ...]
+    for d in descubrimientos:
+        if not d.get("ok"):
+            continue
+        n = d["num_tpv"]
+        for codigo in d.get("propias", []):
+            if codigo in propietarios:
+                conflictos_por_serie.setdefault(
+                    codigo, [propietarios[codigo][0]]).append(n)
+                # Prefiere el menor id_tpv (sustituye si entrante es menor)
+                if n < propietarios[codigo][0]:
+                    propietarios[codigo] = (n, d["num_str"])
+            else:
+                propietarios[codigo] = (n, d["num_str"])
+    conflictos = [
+        {"serie": k, "tpvs": sorted(set(v)),
+         "elegido": propietarios[k][0]}
+        for k, v in conflictos_por_serie.items()
+    ]
+
+    # ── FASE 2: aplicar marcadores en cada TPV en paralelo ───────────────
+    # Por cada serie en su tabla: si tiene propietario en el mapping y
+    # NO tiene ya un (N) en su descripcion, marcarla con el (N) del
+    # propietario. Si ya tiene (cualquier) (N), respetar.
+    def _aplicar(tpv):
+        host = tpv["ip"]
+        nombre = tpv.get("nombre", host)
+        # ¿Este TPV respondió en la fase 1? Si no, no podemos saber su
+        # id_tpv local — pero podemos seguir aplicando (no necesitamos
+        # el id local para esta fase, solo el mapping global).
+        c = None
+        try:
+            c = psycopg2.connect(host=host, port=5432, dbname="tpv",
+                                 user="postgres", password=pwd,
+                                 connect_timeout=5)
+            c.autocommit = False
+            cur = c.cursor()
+            # Listar todas las series de este TPV
+            cur.execute("SELECT id_serie, serie, COALESCE(descripcion,'') "
+                        "FROM serie ORDER BY id_serie")
+            filas = cur.fetchall()
+            actualizadas, ya_marcadas, sin_propietario = 0, 0, 0
+            errores_serie = []
+            # Sample de las primeras 5 actualizaciones para que el preview
+            # las muestre — util para que el tecnico vea exactamente que
+            # se va a tocar antes de pulsar "Aplicar".
+            ejemplos = []
+            # Regex para detectar cualquier (N) ya presente — \(\d+\)
+            import re
+            ya_marcador = re.compile(r"\(\d+\)")
+            for id_s, codigo, desc in filas:
+                if not codigo or codigo not in propietarios:
+                    sin_propietario += 1
+                    continue
+                if ya_marcador.search(desc or ""):
+                    ya_marcadas += 1
+                    continue
+                marcador = f"({propietarios[codigo][1]})"
+                nueva = (desc or "").rstrip() + marcador
+                if len(ejemplos) < 5:
+                    ejemplos.append({
+                        "id_serie": int(id_s), "serie": codigo,
+                        "antes": desc or "", "despues": nueva,
+                        "marcador": marcador,
+                    })
+                if dry_run:
+                    actualizadas += 1
+                    continue
+                try:
+                    cur.execute("UPDATE serie SET descripcion = %s "
+                                "WHERE id_serie = %s",
+                                (nueva, id_s))
+                    if cur.rowcount == 1:
+                        actualizadas += 1
+                    else:
+                        errores_serie.append(f"id={id_s}: rowcount={cur.rowcount}")
+                except Exception as eu:
+                    errores_serie.append(f"id={id_s}: {str(eu).split(chr(10))[0]}")
+            if dry_run:
+                # Ningún cambio queda en la BD — rollback explicito por higiene
+                try: c.rollback()
+                except Exception: pass
+            else:
+                c.commit()
+            return {"host": host, "nombre": nombre, "ok": True,
+                    "actualizadas": actualizadas,
+                    "ya_marcadas": ya_marcadas,
+                    "sin_propietario": sin_propietario,
+                    "errores_serie": errores_serie[:10],
+                    "ejemplos": ejemplos}
+        except Exception as e:
+            if c:
+                try: c.rollback()
+                except Exception: pass
+            return {"host": host, "nombre": nombre, "ok": False,
+                    "error": str(e).split("\n")[0]}
+        finally:
+            if c:
+                try: c.close()
+                except Exception: pass
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        fase2 = list(ex.map(_aplicar, TPVS_CONOCIDOS))
+
+    ok_count = sum(1 for r in fase2 if r.get("ok"))
+    log(f"[series marcar /global{' DRY' if dry_run else ''}] "
+        f"propietarios={len(propietarios)} conflictos={len(conflictos)} "
+        f"fase2_ok={ok_count}/{len(fase2)}",
+        "ok" if ok_count == len(fase2) else "warn")
+
+    return jsonify({
+        "ok": ok_count == len(fase2),
+        "dry_run": dry_run,
+        "fase1": {
+            "propietarios": {k: {"num_tpv": v[0], "num_str": v[1]}
+                             for k, v in propietarios.items()},
+            "total_propietarios": len(propietarios),
+            "conflictos": conflictos,
+        },
+        "fase2": fase2,
+        "ok_count": ok_count,
+        "fail_count": len(fase2) - ok_count,
+        "total": len(fase2),
+    })
+
+
+@app.route("/api/series/mapa-red")
+@need_conn
+def api_series_mapa_red():
+    """Vista consolidada de la red: para cada TPV accesible devuelve sus
+    series propia=TRUE + su identidad (id_tpv/nombre via tpv.principal=TRUE
+    local) en paralelo. Util para ver de un vistazo qué id_serie/serie
+    pertenece a qué TPV en toda la estacion.
+
+    Detecta conflictos: codigos de serie marcados como propia en varios
+    TPVs simultaneamente (sintoma de mala configuracion).
+
+    Returns: {ok, tpvs: [{ip, nombre, num_tpv, ok, total_propias,
+              series:[{id_serie, serie, descripcion, factura,...}], error?}],
+              conflictos: [{serie, owners:[{ip,nombre,num_tpv}]}]}
+    """
+    if sess.get("demo"):
+        return jsonify({"ok": True, "demo": True, "tpvs": [], "conflictos": []})
+
+    pwd = sess.get("password", "")
+
+    def _scan_one(tpv):
+        host = tpv["ip"]
+        nombre = tpv.get("nombre", host)
+        c = None
+        try:
+            c = psycopg2.connect(host=host, port=5432, dbname="tpv",
+                                 user="postgres", password=pwd,
+                                 connect_timeout=5)
+            cur = c.cursor()
+            # 1) Identidad: en cada BD, tpv.principal=TRUE es la fila propia
+            cur.execute("SELECT id_tpv, nombre FROM tpv "
+                        "WHERE principal = TRUE LIMIT 1")
+            row = cur.fetchone()
+            if row:
+                id_tpv_local, nombre_local = row
+            else:
+                id_tpv_local, nombre_local = None, None
+            # 2) Series propias del TPV. Schema completo conocido (CREATE TABLE
+            # publico): factura, credito, contado, rectificativa, comision,
+            # no_venta, sistema_venta_externo, firma_digital, envio_fiscal,
+            # desglosa_impuesto, ... Usamos los booleanos relevantes para
+            # clasificar la serie en la UI.
+            cur.execute(
+                "SELECT id_serie, serie, COALESCE(descripcion,'') AS descripcion,"
+                "       factura, rectificativa, comision, credito, contado,"
+                "       no_venta, sistema_venta_externo, firma_digital, envio_fiscal "
+                "FROM serie WHERE propia = TRUE "
+                "ORDER BY id_serie")
+            series = []
+            for r in cur.fetchall():
+                series.append({
+                    "id_serie":              int(r[0]),
+                    "serie":                 r[1] or "",
+                    "descripcion":           r[2] or "",
+                    "factura":               bool(r[3]),
+                    "rectificativa":         bool(r[4]),
+                    "comision":              bool(r[5]),
+                    "credito":               bool(r[6]),
+                    "contado":               bool(r[7]),
+                    "no_venta":              bool(r[8]),
+                    "sistema_venta_externo": bool(r[9]),
+                    "firma_digital":         bool(r[10]),
+                    "envio_fiscal":          bool(r[11]),
+                })
+            return {"ip": host, "nombre": nombre, "ok": True,
+                    "num_tpv": id_tpv_local, "nombre_local": nombre_local,
+                    "total_propias": len(series), "series": series}
+        except Exception as e:
+            return {"ip": host, "nombre": nombre, "ok": False,
+                    "error": str(e).split("\n")[0],
+                    "num_tpv": None, "total_propias": 0, "series": []}
+        finally:
+            if c:
+                try: c.close()
+                except Exception: pass
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        resultados = list(ex.map(_scan_one, TPVS_CONOCIDOS))
+
+    # Detectar conflictos: codigos `serie` marcados como propia en >1 TPV
+    serie_owners = {}
+    for tpv_res in resultados:
+        if not tpv_res.get("ok"):
+            continue
+        for s in tpv_res["series"]:
+            key = s["serie"]
+            if not key:
+                continue
+            serie_owners.setdefault(key, []).append({
+                "ip": tpv_res["ip"],
+                "nombre": tpv_res["nombre"],
+                "num_tpv": tpv_res.get("num_tpv"),
+                "id_serie": s["id_serie"],
+            })
+    conflictos = [
+        {"serie": k, "owners": v}
+        for k, v in sorted(serie_owners.items())
+        if len(v) > 1
+    ]
+
+    ok_count = sum(1 for r in resultados if r.get("ok"))
+    return jsonify({
+        "ok": True,
+        "total_tpvs": len(resultados),
+        "ok_count": ok_count,
+        "fail_count": len(resultados) - ok_count,
+        "tpvs": resultados,
+        "conflictos": conflictos,
+    })
 
 
 @app.route("/api/propiedades")
@@ -6180,16 +6827,115 @@ def _detectar_ip_local():
     return ""
 
 
+def _detectar_principal_red(num_tpv_local=None, password=None):
+    """Escanea la red GARUM (10.0.0.101..10.0.0.109) buscando el TPV vivo que
+    EJERCE como principal/master. Util para Reintegrar cuando el TPV1 cayo y
+    otro TPV ha tomado el rol: en ese caso clonamos desde ese otro, no desde
+    10.0.0.101.
+
+    IMPORTANTE — convencion GARUM (line 6027 de este archivo):
+      "En cada BD, principal=TRUE solo para su propia fila"
+    Es decir, `tpv.principal=TRUE` en cada BD identifica al PROPIO TPV (su
+    autoidentificacion), NO al master de la red. Por eso NO sirve para
+    saber quien es el master vivo: cada TPV reportaria a si mismo.
+
+    Lo que SI sirve (ver probar_tpv() linea 994): el campo `BackupDirectoriesBOS`
+    de la tabla `propiedad`. Si NO empieza por '//' (comentado) → ese TPV
+    es PRINCIPAL real. Los secundarios tienen `//...` (BOS comentado).
+
+    Devuelve: dict {ip, num_tpv, ok:bool, motivo:str}.
+      - ok=True con ip/num_tpv si encontramos al principal vivo
+      - ok=False con motivo explicativo si nadie responde como principal
+
+    Conexion en paralelo (ThreadPoolExecutor) con timeout 2s.
+
+    Args:
+      num_tpv_local: si se indica, excluimos esa IP del escaneo (el local
+        no puede ser el origen — si estamos en TPV2 reintegrando, no vale
+        clonar de TPV2 a TPV2).
+      password: pwd de postgres. Si es None usa sess['password'].
+    """
+    pwd = password if password is not None else sess.get("password", "")
+    if not pwd:
+        return {"ok": False, "motivo": "Sin pwd en sesion para escanear"}
+
+    candidatos = []
+    for n in range(1, 10):
+        if num_tpv_local is not None and n == num_tpv_local:
+            continue   # nos saltamos a nosotros mismos
+        candidatos.append((n, f"10.0.0.10{n}"))
+
+    def _probar(n_ip):
+        """Devuelve (num_tpv_local_segun_su_BD, ip) si responde como principal,
+        None si no. La n_ip que pasamos por defecto se usa solo si no podemos
+        leer el id_tpv de su propia BD (caso defensivo)."""
+        n, ip = n_ip
+        c = None
+        try:
+            c = psycopg2.connect(host=ip, port=5432, dbname="tpv",
+                                  user="postgres", password=pwd,
+                                  connect_timeout=2)
+            cur = c.cursor()
+            # 1) ¿Es este TPV principal? Lo decide BackupDirectoriesBOS.
+            #    Si esta vacio o empieza por '//' → es secundario, NO master.
+            cur.execute("SELECT valor FROM propiedad "
+                        "WHERE clave = 'BackupDirectoriesBOS' LIMIT 1")
+            row = cur.fetchone()
+            bos = (row[0] if row else "") or ""
+            es_principal = bool(bos.strip()) and not bos.strip().startswith("//")
+            if not es_principal:
+                return None
+            # 2) Es principal — leemos su id_tpv local (principal=TRUE en su
+            #    BD identifica su propia fila, asi que aqui SI vale).
+            cur.execute("SELECT id_tpv FROM tpv WHERE principal = TRUE LIMIT 1")
+            row2 = cur.fetchone()
+            id_tpv = int(row2[0]) if row2 else n
+            return (id_tpv, ip)
+        except Exception:
+            return None
+        finally:
+            if c:
+                try: c.close()
+                except Exception: pass
+
+    encontrados = []
+    with ThreadPoolExecutor(max_workers=min(9, len(candidatos))) as ex:
+        futuros = {ex.submit(_probar, c): c for c in candidatos}
+        for fut in as_completed(futuros):
+            res = fut.result()
+            if res:
+                encontrados.append(res)
+
+    if not encontrados:
+        return {"ok": False, "motivo": (
+            "Ningun TPV vivo en la red tiene BackupDirectoriesBOS activo "
+            "(todos son secundarios o no responden)")}
+    # Si por mala configuracion de red hay varios "principales", preferimos
+    # el de menor id_tpv (mas estable y previsible).
+    encontrados.sort(key=lambda r: r[0])
+    id_tpv, ip = encontrados[0]
+    return {"ok": True, "ip": ip, "num_tpv": id_tpv,
+            "motivo": f"TPV {id_tpv} ({ip}) es el principal vivo (BOS activo)"}
+
+
 @app.route("/api/reintegrar/info")
 @need_conn
 def api_reintegrar_info():
     """Pre-vuelo del modulo Reintegrar: devuelve qué TPV se va a reintegrar
-    detectándolo automáticamente de la IP local del PC."""
+    detectándolo automáticamente de la IP local del PC + buscando cuál es
+    el principal vivo en la red (puede no ser el TPV1 si éste cayó)."""
     num_tpv = _detectar_num_tpv_local()
     ip_local = _detectar_ip_local()
+    # Escanea la red para localizar el principal real (puede no ser TPV1).
+    # Si falla la deteccion (red caida, otros TPVs apagados, etc.) caemos a
+    # _REINT_IP_PRINCIPAL como antes. Coste: ~2s en LAN tipica.
+    principal = _detectar_principal_red(num_tpv_local=num_tpv)
+    ip_principal_red = principal["ip"]    if principal.get("ok") else _REINT_IP_PRINCIPAL
+    num_principal_red = principal["num_tpv"] if principal.get("ok") else 1
+    principal_motivo  = principal.get("motivo", "")
     # Caso A: IP local fuera del rango GARUM — auto-detect falla.
     # Devolvemos defaults sugeridos para que el frontend pre-rellene los inputs
-    # manuales (num_tpv=2, ip_origen=10.0.0.101). El tecnico podra confirmar/editar.
+    # manuales (num_tpv=2, ip_origen=<principal detectado o 10.0.0.101>).
     if num_tpv is None:
         return jsonify({
             "ok": True,
@@ -6199,25 +6945,48 @@ def api_reintegrar_info():
             "ip_local": ip_local or "(desconocida)",
             "num_tpv": None,
             "num_tpv_sugerido": 2,
-            "ip_origen_sugerida": _REINT_IP_PRINCIPAL,
+            "ip_origen_sugerida": ip_principal_red,
+            "principal_detectado": principal,
         })
-    # Caso B: TPV1 detectado. Este modulo no aplica directamente (TPV1 es la fuente),
-    # pero permitimos override manual desde el frontend para casos de prueba.
-    # Sugerimos num_tpv=2 y como origen la propia IP local (TPV1).
+    # Caso B: TPV1 detectado. Este modulo no aplica directamente si TPV1 SIGUE
+    # siendo el principal vivo (TPV1 seria la fuente, no destino). Pero si TPV1
+    # esta caido y otro TPV es principal, entonces tiene sentido reintegrar el
+    # TPV1 desde ese otro — caso real al recuperar tras una caida del 1.
     if num_tpv == 1:
+        # Si el principal detectado NO es el 1, tiene sentido reintegrar.
+        if principal.get("ok") and num_principal_red != 1:
+            return jsonify({
+                "ok": True,
+                "listo": True,
+                "num_tpv": 1,
+                "ip_local": ip_local,
+                "ip_principal": ip_principal_red,
+                "ip_origen": ip_principal_red,
+                "es_tpv1": True,
+                "principal_caido": True,
+                "motivo": (f"TPV1 detectado pero el principal vivo es TPV {num_principal_red} "
+                           f"({ip_principal_red}). Reintegrando TPV1 desde ese."),
+                "num_tpv_sugerido": 1,
+                "ip_origen_sugerida": ip_principal_red,
+                "principal_detectado": principal,
+            })
+        # Caso original: TPV1 vivo y principal — no aplica reintegrar.
         return jsonify({
             "ok": True,
             "listo": False,
             "es_tpv1": True,
             "num_tpv": 1,
             "ip_local": ip_local,
-            "motivo": "Detectado TPV1 (fuente del clonado). Indica un nº de TPV destino 2..9.",
+            "motivo": "Detectado TPV1 — fuente habitual del clonado. Si vas a reinstalar TPV1 mantén el 1; en caso normal indica el nº destino 2..9.",
             "num_tpv_sugerido": 2,
-            "ip_origen_sugerida": ip_local or _REINT_IP_PRINCIPAL,
+            "ip_origen_sugerida": ip_local or ip_principal_red,
+            "principal_detectado": principal,
         })
-    # Caso C: TPV 2..9 detectado, listo para reintegrar con defaults.
-    ip_principal = _REINT_IP_PRINCIPAL  # TPVs 2..9 clonan desde TPV1
-    ip_origen = _REINT_IP_PRINCIPAL
+    # Caso C: TPV 2..9 detectado, listo para reintegrar.
+    # ip_origen viene del escaneo de red — puede ser el TPV1 (caso normal) o
+    # cualquier otro TPV vivo que haya tomado el rol de principal.
+    ip_principal = ip_principal_red
+    ip_origen = ip_principal_red
     return jsonify({
         "ok": True,
         "listo": True,
@@ -6229,6 +6998,7 @@ def api_reintegrar_info():
         # Mismos valores como "sugeridos" para que el frontend solo lea una clave.
         "num_tpv_sugerido": num_tpv,
         "ip_origen_sugerida": ip_origen,
+        "principal_detectado": principal,
     })
 
 
@@ -6777,7 +7547,10 @@ def api_reintegrar_iniciar():
     else:
         copiar_garum = bool(_cg)
 
-    # 1) num_tpv: override > auto-detect. Siempre debe quedar en [2, 9].
+    # 1) num_tpv: override > auto-detect. Rango [1, 9].
+    # Antes era [2, 9] bajo la asuncion de que TPV1 SIEMPRE es la fuente. Pero
+    # hay un caso real en el que necesitamos reintegrar TPV1: cuando el propio
+    # TPV1 muere y otro TPV (que tomo el rol de principal) es la fuente.
     if num_tpv_override is not None and num_tpv_override != "":
         try:
             num_tpv = int(num_tpv_override)
@@ -6789,9 +7562,9 @@ def api_reintegrar_iniciar():
             return jsonify({"ok": False,
                             "error": ("No se ha detectado IP local en 10.0.0.101..10.0.0.109. "
                                       "Indica el nº de TPV manualmente.")}), 400
-    if not (2 <= num_tpv <= 9):
+    if not (1 <= num_tpv <= 9):
         return jsonify({"ok": False,
-                        "error": "num_tpv debe estar entre 2 y 9 (TPV1 es la fuente, no un destino)."}), 400
+                        "error": "num_tpv debe estar entre 1 y 9."}), 400
 
     # 2) ip_origen: override > default _REINT_IP_PRINCIPAL.
     # Reusa val_host() (linea 604): valida formato IPv4 + whitelist _REDES.
@@ -6892,7 +7665,21 @@ def _crear_usuario_windows_local():
         "-Description 'Usuario tecnico integracion TPVs GARUM' | Out-Null\n"
         "    Write-Output ('STEP2:create:done:Usuario creado con PasswordNeverExpires + AccountNeverExpires')\n"
         "  } catch {\n"
-        "    Write-Output ('STEP2:create:error:' + $_.Exception.Message)\n"
+        # Mensaje amigable cuando la politica local de pwd rechaza la contrasena.
+        # InvalidPasswordException la lanza New-LocalUser cuando la directiva de
+        # seguridad local (secpol.msc) exige mas complejidad / longitud que la
+        # del password hardcoded. La pwd no la podemos cambiar porque tiene que
+        # ser identica en todos los TPVs (SMB cross-host).
+        "    $exType = $_.Exception.GetType().FullName\n"
+        "    if ($exType -match 'InvalidPasswordException' -or "
+        "        $_.Exception.Message -match 'complej|complex|policy|directiva|policia') {\n"
+        "      $msg = 'La politica de Windows de este equipo rechaza la contrasena. " \
+                  "Abre secpol.msc -> Directivas de cuenta -> Directiva de contrasenas y " \
+                  "deshabilita Complejidad + baja Longitud minima a 0. Reintenta.'\n"
+        "      Write-Output ('STEP2:create:error:' + $msg)\n"
+        "    } else {\n"
+        "      Write-Output ('STEP2:create:error:' + $_.Exception.Message)\n"
+        "    }\n"
         "    Write-Output 'STEP3:group:pending:No se ha intentado (paso anterior fallo)'\n"
         "    Write-Output 'RESULT:error'\n"
         "    return\n"

@@ -1,7 +1,78 @@
-GARUM TPV Manager v7.4
+GARUM TPV Manager v7.5
 =======================
 Herramienta interna para gestionar la integracion de TPVs GARUM.
 Diseno corporativo 4GL Solutions.
+
+
+NOVEDADES v7.5 — MODULO SERIES REDISENADO + REINTEGRAR MEJORADO
+----------------------------------------------------------------
+Version 100% compatible con v7.4. Sin cambios de schema, solo nuevas
+funcionalidades y pulidos. 16 cambios acumulados.
+
+MODULO "Series" — REDISENO COMPLETO
+  La pestana "Series" ahora trabaja con vista de RED en vez de single-TPV.
+  Tres sub-tabs:
+
+  > "🗺 Mapa Series → TPV" (sub-tab default, NUEVA)
+    Vista consolidada: muestra las series propias de CADA TPV de la red
+    en paralelo, con badges informativos (factura/simplificada/no_venta/
+    rectificativa/comision/credito/contado/externo/firma/AEAT). Detecta
+    automaticamente conflictos (misma serie marcada como propia en mas
+    de un TPV — sintoma de mala configuracion). Reemplaza a la antigua
+    sub-tab "Ver series" (eliminada).
+
+  > "✏ Marcar descripciones" (NUEVA)
+    Añade el sufijo (N) al campo serie.descripcion de las series propias,
+    donde N es el numero del TPV propietario. Convencion del cliente para
+    que el modulo Reintegrar TPV (paso 3) identifique fiablemente las
+    series propias.
+
+    Dos modos de aplicacion:
+      a) "🔍 Previsualizar (este TPV)" → solo el TPV donde estas,
+         con preview previo + boton "Aplicar al TPV local".
+      b) "🔭 Previsualizar marcado global" → ejecuta DRY RUN en TODA
+         la red descubriendo propietarios, te muestra exactamente
+         que se haria en cada TPV (incluyendo ejemplos "antes/despues"),
+         y al final aparece "✓ Aplicar cambios" para ejecutar de verdad.
+         Marca propias Y ajenas con el (N) del propietario REAL.
+
+    Idempotente: si una descripcion ya contiene (N), no se duplica.
+    RTRIM antes de concatenar para evitar espacios feos.
+
+  > "↑ Importar numeros" (sin cambios respecto v7.3)
+    Sube XML con contadores serie.numero. Aplica al TPV local.
+
+
+MODULO "Reintegrar TPV" — MEJORAS
+  > Auto-deteccion del PRINCIPAL VIVO en la red (no asume TPV1).
+    Si TPV1 cae y otro TPV toma el rol via "Hacer principal", el
+    modulo lo detecta leyendo propiedad.BackupDirectoriesBOS y propone
+    clonar desde ahi. Antes asumia 10.0.0.101 siempre.
+
+  > Permite reintegrar el propio TPV1 (rango 1..9, antes 2..9).
+    Caso real: TPV1 se rompe y hay que reinstalarlo desde el TPV
+    que tomo el rol de principal.
+
+  > Campos renombrados a lenguaje mas directo:
+      "IP del TPV principal/origen" → "IP del TPV a clonar"
+      "IP local de este TPV"        → "IP local de este equipo"
+
+
+MODULO "Usuario sistema" — MEJOR MENSAJE DE ERROR
+  Si la politica de Windows del equipo rechaza la contrasena (al crear
+  el usuario integracion4gl), el mensaje ahora dice exactamente que
+  hacer: "Abre secpol.msc → Directiva de contrasenas → deshabilita
+  Complejidad + Longitud minima". Antes mostraba el error tecnico
+  crudo (InvalidPasswordException).
+
+
+UX GENERAL
+  > Fondo cambiado a un crema claro tipo papel (#F6F5F1). Sidebar y
+    topbar comparten el mismo fondo — solo las tarjetas son blancas.
+    Reduce fatiga visual en sesiones largas (estilo Notion/iA Writer).
+  > Textos descriptivos cortados a 1-2 lineas en sub-tabs de Series.
+    Los tecnicos no leen parrafos largos — los detalles estan en los
+    tooltips de los botones.
 
 
 NOVEDADES v7.4 — MEJORAS DE UX + REORGANIZACION
