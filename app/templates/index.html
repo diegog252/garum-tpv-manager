@@ -7930,7 +7930,8 @@ async function setupGarumDescargar(){
 // ============================================================================
 
 var actEstado = {checked: false, hay_actualizacion: false,
-                 version_local: null, version_remota: null};
+                 version_local: null, version_remota: null,
+                 motivo: null};
 
 async function act_loadVersion(){
   // Reemplaza el v8.0 hardcoded del sidebar por el valor que devuelve el
@@ -7946,20 +7947,30 @@ async function act_loadVersion(){
 }
 
 async function act_check(){
-  // Llamado tras login exitoso. Silencio total si falla (sin red, etc.).
+  // Llamado tras login exitoso. Silencio en UI principal si falla
+  // (sin red, etc.) — solo se nota en la pestaña Actualizar.
   try {
     var r = await get('/api/actualizar/check');
-  } catch(e){ return; }
-  if(!r || !r.ok) return;
+  } catch(e){
+    actEstado.checked = true;
+    actEstado.motivo = 'No se pudo conectar (' + String(e) + ')';
+    actEstado.hay_actualizacion = false;
+    return;
+  }
+  if(!r || !r.ok){
+    actEstado.checked = true;
+    actEstado.motivo = (r && r.error) || 'Respuesta no válida del servidor';
+    actEstado.hay_actualizacion = false;
+    return;
+  }
   actEstado.checked = true;
   actEstado.hay_actualizacion = !!r.hay_actualizacion;
   actEstado.version_local = r.version_local;
   actEstado.version_remota = r.version_remota;
+  actEstado.motivo = r.motivo || null;
   if(r.hay_actualizacion){
-    // Badge en sidebar
     var badge = document.getElementById('sbActualizarBadge');
     if(badge) badge.style.display = 'inline';
-    // Banner en Panel
     var b = document.getElementById('actBanner');
     var verEl = document.getElementById('actBannerVer');
     var locEl = document.getElementById('actBannerLocal');
@@ -7985,34 +7996,43 @@ async function act_recheck(){
   var btn = document.getElementById('actBtnRecheck');
   var box = document.getElementById('actEstadoBox');
   if(btn) btn.disabled = true;
-  if(box) box.innerHTML = '<span style="font-size:13px;color:var(--text3)">Comprobando…</span>';
+  if(box) box.innerHTML = '<span style="font-size:13px;color:var(--text3)">⏳ Comprobando…</span>';
   try {
     var r = await get('/api/actualizar/check');
-    if(!r || !r.ok){
-      if(box) box.innerHTML = '<span style="font-size:13px;color:var(--red-s)">✕ No se pudo consultar</span>';
-      if(btn) btn.disabled = false;
-      return;
-    }
-    actEstado.checked = true;
-    actEstado.hay_actualizacion = !!r.hay_actualizacion;
-    actEstado.version_local = r.version_local;
-    actEstado.version_remota = r.version_remota;
-    // Si ahora hay update, también activa el badge
-    if(r.hay_actualizacion){
-      var badge = document.getElementById('sbActualizarBadge');
-      if(badge) badge.style.display = 'inline';
-    } else {
-      var badge2 = document.getElementById('sbActualizarBadge');
-      if(badge2) badge2.style.display = 'none';
-      var ban = document.getElementById('actBanner');
-      if(ban) ban.style.display = 'none';
-    }
-    _act_renderEstado();
   } catch(e){
-    if(box) box.innerHTML = '<span style="font-size:13px;color:var(--red-s)">✕ '+H(String(e))+'</span>';
-  } finally {
+    actEstado.checked = true;
+    actEstado.motivo = 'No se pudo conectar';
+    actEstado.hay_actualizacion = false;
+    actEstado.version_remota = null;
     if(btn) btn.disabled = false;
+    _act_renderEstado();
+    return;
   }
+  if(!r || !r.ok){
+    actEstado.checked = true;
+    actEstado.motivo = (r && r.error) || 'Respuesta no válida';
+    actEstado.hay_actualizacion = false;
+    actEstado.version_remota = null;
+    if(btn) btn.disabled = false;
+    _act_renderEstado();
+    return;
+  }
+  actEstado.checked = true;
+  actEstado.hay_actualizacion = !!r.hay_actualizacion;
+  actEstado.version_local = r.version_local;
+  actEstado.version_remota = r.version_remota;
+  actEstado.motivo = r.motivo || null;
+  // Badge + banner sólo si hay update
+  var badge = document.getElementById('sbActualizarBadge');
+  var ban   = document.getElementById('actBanner');
+  if(r.hay_actualizacion){
+    if(badge) badge.style.display = 'inline';
+  } else {
+    if(badge) badge.style.display = 'none';
+    if(ban)   ban.style.display   = 'none';
+  }
+  if(btn) btn.disabled = false;
+  _act_renderEstado();
 }
 
 function _act_renderEstado(){
@@ -8024,11 +8044,22 @@ function _act_renderEstado(){
   var aviso      = document.getElementById('actAvisoCerrar');
   if(verLocalEl) verLocalEl.textContent = 'v'+(actEstado.version_local||'?');
   if(verRemEl)   verRemEl.textContent   = actEstado.version_remota ? ('v'+actEstado.version_remota) : '—';
+
+  // Tres estados:
+  //   - Hay update (local < remota)               → azul: "🔄 Actualización disponible"
+  //   - Estás al día (local >= remota, sin motivo)→ verde: "✓ Estás al día"
+  //   - No se pudo consultar (motivo set, sin ver)→ ámbar: "⚠ No se pudo consultar"
   if(actEstado.hay_actualizacion){
     if(estado) estado.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:var(--blue-bg);color:var(--blue);border-radius:14px;font-size:12px;font-weight:600">🔄 Actualización disponible</span>';
     if(btn){ btn.style.display = ''; btn.disabled = false; }
     if(btnVer) btnVer.textContent = 'v'+(actEstado.version_remota||'?');
     if(aviso) aviso.style.display = '';
+  } else if(!actEstado.version_remota){
+    // Caso "no se pudo consultar la nube"
+    var detalle = actEstado.motivo ? (' — '+H(actEstado.motivo)) : '';
+    if(estado) estado.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:var(--amber-bg);color:var(--amber);border-radius:14px;font-size:12px;font-weight:600" title="'+H(actEstado.motivo||'')+'">⚠ No se pudo consultar la nube</span>';
+    if(btn) btn.style.display = 'none';
+    if(aviso) aviso.style.display = 'none';
   } else {
     if(estado) estado.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:var(--green-bg);color:var(--green);border-radius:14px;font-size:12px;font-weight:600">✓ Estás al día</span>';
     if(btn) btn.style.display = 'none';
