@@ -1,6 +1,43 @@
 """
-GARUM TPV Manager - Backend v7.6
+GARUM TPV Manager - Backend v8.0
 ==================================
+v8.0:   AUTO-ACTUALIZACION desde la nube 4GL. Cambio mayor que cierra el
+        flujo de distribucion: ya no hay que descargar e instalar a mano.
+
+        Nuevo modulo "🔄 Actualizar" (en sidebar):
+          - Al login, check automatico silencioso contra
+            https://4gl.fortiddns.com:1604/descargas/version_manager.txt
+            (fichero ligero 1 KB con la version actual). Si la version
+            remota > APP_VERSION local → badge en sidebar + banner en Panel.
+          - Boton "▶ Descargar e instalar" en la pestaña Actualizar.
+          - Al pulsarlo: descarga el ZIP de distribucion completo (~40 MB),
+            lo descomprime en C:\\GARUMTOOLS\\Update\\, localiza el
+            Setup-vX.exe interno, lo ejecuta como proceso DESACOPLADO
+            (DETACHED_PROCESS + CREATE_NEW_PROCESS_GROUP), y cierra la
+            app via os._exit(0) tras 5 s (suficiente para que el setup
+            haya iniciado pero antes de que intente sobrescribir ficheros).
+
+        Constante nueva APP_VERSION="8.0" — fuente unica de verdad para
+        version. Sidebar la lee dinamicamente via /api/app-info, asi los
+        futuros bumps solo requieren cambiar esa constante.
+
+        Helper extraido _descargar_url_a_fichero(url, dest, timeout, ua):
+        descarga atomica (.tmp + replace) con fallback SSL no-verify.
+        Usado por api_setup_garum_descargar y api_actualizar_aplicar.
+
+        3 endpoints nuevos:
+          GET  /api/app-info         — devuelve {version, name} (publico)
+          GET  /api/actualizar/check — compara version local vs remota
+          POST /api/actualizar/aplicar — descarga ZIP + descomprime + lanza
+                                          setup desacoplado + sys.exit(0)
+
+        Casos defensivos:
+          - Sin red al login → check falla silencioso, sin badge ni error.
+          - Local >= remota → sin badge (no avisar update si no procede).
+          - Setup.exe no encontrado en el ZIP → error claro, no se cierra.
+          - Doble clic en "Aplicar" → flag _actualizando previene race.
+          - URL no responde → mensaje neutro, no expone detalle tecnico.
+
 v7.6:   Nuevo PASO 0 "Descargar instaladores" en Reintegrar TPV + Nuevo TPV.
         Bloque <details> colapsable al principio de ambos modulos que:
           1. Descarga https://4gl.fortiddns.com:1604/descargas/Setup-GARUM.zip
@@ -7793,6 +7830,73 @@ def _crear_usuario_windows_local():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# VERSION Y CONSTANTES GLOBALES — APP_VERSION es la fuente unica de verdad
+# para la version. El docstring, el sidebar HTML, el User-Agent y los
+# endpoints /api/app-info y /api/actualizar/check la leen de aqui. Bumpar
+# solo este valor (+ los .bat / NSI / docs) en el siguiente release.
+# ─────────────────────────────────────────────────────────────────────────────
+
+APP_VERSION = "8.0"
+APP_NAME    = "GARUM TPV Manager"
+_USER_AGENT = f"GARUM-TPV-Manager/{APP_VERSION}"
+
+# Lock global para evitar doble click en "Aplicar actualizacion" (no es 100%
+# robusto entre procesos, pero esta app corre como instancia unica). Threading
+# nativo basta — Flask en threaded=True puede tener varios requests en vuelo.
+_actualizando_lock = threading.Lock()
+_actualizando_en_curso = False
+
+
+def _descargar_url_a_fichero(url, dest_path, timeout=600, user_agent=None):
+    """Descarga url → dest_path con escritura atomica (.tmp + replace).
+    Fallback SSL no-verify si el primer intento con verificacion falla
+    (algunos clientes tienen cert FortiDDNS auto-firmado).
+
+    Lanza RuntimeError si la descarga acaba pero el fichero esta vacio.
+    Lanza otras excepciones (URLError, OSError) sin envolverlas — el caller
+    decide como reportarlas.
+    """
+    import urllib.request, ssl, shutil
+    tmp_path = dest_path + ".tmp"
+    ua = user_agent or _USER_AGENT
+
+    def _do(ctx):
+        req = urllib.request.Request(url, headers={"User-Agent": ua})
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            with open(tmp_path, "wb") as f:
+                shutil.copyfileobj(resp, f, length=64 * 1024)
+
+    try:
+        _do(ssl.create_default_context())
+    except ssl.SSLError as ssl_err:
+        log(f"[descarga] SSL verify fallo ({ssl_err}); reintentando sin verify",
+            "warn")
+        _do(ssl._create_unverified_context())
+
+    if not os.path.isfile(tmp_path) or os.path.getsize(tmp_path) == 0:
+        try:
+            if os.path.isfile(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        raise RuntimeError("La descarga termino pero el fichero esta vacio")
+    os.replace(tmp_path, dest_path)
+    return os.path.getsize(dest_path)
+
+
+def _comparar_versiones(local, remota):
+    """Compara strings tipo '8.0' vs '8.1.3' devolviendo -1, 0 o 1.
+    Tolera espacios, prefijo 'v', diferentes longitudes (8.0 < 8.0.1)."""
+    def _parse(s):
+        s = (s or "").strip().lstrip("vV")
+        return tuple(int(p) for p in s.split(".") if p.isdigit())
+    a, b = _parse(local), _parse(remota)
+    if a < b: return -1
+    if a > b: return 1
+    return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # SETUP-GARUM (PASO 0): descarga del ZIP con los instaladores (BBDD + Java +
 # GARUM) desde la nube 4GL. Usado al principio de Reintegrar TPV y Nuevo TPV.
 # Endpoint sincrono: bloquea hasta que termine la descarga. Si el ZIP fuera
@@ -7837,32 +7941,13 @@ def api_setup_garum_descargar():
                         "zip_path": _SETUP_GARUM_PATH,
                         "extract_dir": _SETUP_GARUM_EXTRACT,
                         "size_mb": 0.0, "files_count": 0, "unzip_ok": True})
-    import urllib.request, ssl, shutil, zipfile
+    import shutil, zipfile
     try:
         os.makedirs(_SETUP_GARUM_DIR, exist_ok=True)
-        # Escritura atomica: .tmp + renombrar.
-        tmp_path = _SETUP_GARUM_PATH + ".tmp"
         log(f"[setup-garum] Descargando {_SETUP_GARUM_URL} → {_SETUP_GARUM_PATH}", "info")
-
-        def _descargar(ctx):
-            req = urllib.request.Request(
-                _SETUP_GARUM_URL,
-                headers={"User-Agent": "GARUM-TPV-Manager/7.5"},
-            )
-            with urllib.request.urlopen(req, timeout=600, context=ctx) as resp:
-                with open(tmp_path, "wb") as f:
-                    shutil.copyfileobj(resp, f, length=64*1024)
-
-        try:
-            _descargar(ssl.create_default_context())
-        except ssl.SSLError as ssl_err:
-            log(f"[setup-garum] SSL verify fallo ({ssl_err}); reintentando sin verify", "warn")
-            _descargar(ssl._create_unverified_context())
-
-        if not os.path.isfile(tmp_path) or os.path.getsize(tmp_path) == 0:
-            raise RuntimeError("La descarga termino pero el fichero esta vacio")
-        os.replace(tmp_path, _SETUP_GARUM_PATH)
-        size = os.path.getsize(_SETUP_GARUM_PATH)
+        # Helper compartido (v8.0): escritura atomica + fallback SSL no-verify.
+        size = _descargar_url_a_fichero(_SETUP_GARUM_URL, _SETUP_GARUM_PATH,
+                                        timeout=600)
         size_mb = round(size / 1024 / 1024, 1)
         log(f"[setup-garum] OK descarga — {size_mb} MB", "ok")
 
@@ -7907,6 +7992,218 @@ def api_setup_garum_descargar():
             pass
         msg = str(e).split("\n")[0]
         log(f"[setup-garum] ERROR: {msg}", "error")
+        return jsonify({"ok": False, "error": msg}), 500
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTO-ACTUALIZACION (v8.0): la app consulta version_manager.txt en la nube,
+# compara con APP_VERSION local, y si la remota es mayor permite descargar
+# el ZIP de distribucion completo, descomprimirlo, lanzar el Setup.exe como
+# proceso desacoplado, y cerrarse para que el setup pueda sobrescribir los
+# ficheros sin conflictos. Bandera global _actualizando_en_curso previene
+# que un doble click dispare 2 descargas/relanzamientos en paralelo.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_UPDATE_VERSION_URL = "https://4gl.fortiddns.com:1604/descargas/version_manager.txt"
+_UPDATE_ZIP_URL     = "https://4gl.fortiddns.com:1604/descargas/GARUM_TPV_Manager_v7.4_distribucion.zip"
+_UPDATE_DIR         = r"C:\GARUMTOOLS\Update"
+_UPDATE_ZIP_PATH    = r"C:\GARUMTOOLS\Update\update.zip"
+
+
+@app.route("/api/app-info")
+def api_app_info():
+    """Devuelve metadata basica de la app (publico, sin @need_conn).
+    Lo usa el frontend para inyectar la version en el sidebar y para
+    el modulo de auto-actualizacion."""
+    return jsonify({"ok": True, "version": APP_VERSION, "name": APP_NAME})
+
+
+@app.route("/api/actualizar/check")
+@need_conn
+def api_actualizar_check():
+    """Consulta la nube 4GL para saber si hay una version mas reciente.
+    Defensa: ante cualquier error (sin red, URL caida, version_manager.txt
+    mal formado) NO devuelve 500. Devuelve hay_actualizacion=false con un
+    motivo informativo. La idea es que el frontend pueda hacer este check
+    silenciosamente al login sin mostrar errores al tecnico.
+
+    Returns {ok:True, version_local, version_remota, hay_actualizacion,
+             zip_url, comprobado_en, motivo?}
+    """
+    import urllib.request, ssl, datetime
+
+    def _ahora_iso():
+        return datetime.datetime.now().replace(microsecond=0).isoformat()
+
+    version_remota = None
+    motivo = None
+    try:
+        # Descargar version_manager.txt (~10 bytes) — sin escribir a disco.
+        # Reusamos el patron SSL + fallback no-verify del helper.
+        req = urllib.request.Request(_UPDATE_VERSION_URL,
+                                      headers={"User-Agent": _USER_AGENT})
+
+        def _leer(ctx):
+            with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+                return resp.read(256).decode("utf-8", errors="ignore").strip()
+
+        try:
+            version_remota = _leer(ssl.create_default_context())
+        except ssl.SSLError:
+            version_remota = _leer(ssl._create_unverified_context())
+    except Exception as e:
+        msg = str(e).split("\n")[0][:200]
+        log(f"[actualizar/check] No se pudo consultar la nube: {msg}", "warn")
+        motivo = "No se pudo consultar la nube"
+
+    if not version_remota:
+        return jsonify({
+            "ok": True,
+            "version_local": APP_VERSION,
+            "version_remota": None,
+            "hay_actualizacion": False,
+            "zip_url": _UPDATE_ZIP_URL,
+            "comprobado_en": _ahora_iso(),
+            "motivo": motivo or "Sin version remota leible",
+        })
+
+    cmp_ = _comparar_versiones(APP_VERSION, version_remota)
+    hay = (cmp_ < 0)
+    log(f"[actualizar/check] local={APP_VERSION} remota={version_remota} "
+        f"hay_update={hay}", "info")
+    return jsonify({
+        "ok": True,
+        "version_local": APP_VERSION,
+        "version_remota": version_remota,
+        "hay_actualizacion": hay,
+        "zip_url": _UPDATE_ZIP_URL,
+        "comprobado_en": _ahora_iso(),
+    })
+
+
+@app.route("/api/actualizar/aplicar", methods=["POST"])
+@csrf
+@need_conn
+def api_actualizar_aplicar():
+    """Descarga el ZIP de distribucion, lo descomprime en C:\\GARUMTOOLS\\Update\\,
+    localiza el Setup-vX.exe interno y lo lanza como proceso DESACOPLADO. Tras
+    5 s la app se cierra via os._exit(0) para que el setup pueda sobrescribir
+    los ficheros sin tener Flask bloqueandolos.
+
+    Returns {ok, version_a_instalar, setup_path, segundos_para_cerrar}
+    """
+    global _actualizando_en_curso
+    if sess.get("demo"):
+        return jsonify({"ok": True, "demo": True, "setup_path": "<demo>",
+                        "version_a_instalar": "demo",
+                        "segundos_para_cerrar": 5})
+
+    # Defensa anti-race: solo una actualizacion concurrente.
+    with _actualizando_lock:
+        if _actualizando_en_curso:
+            return jsonify({"ok": False, "ya_en_curso": True,
+                            "error": "Hay una actualizacion en curso"}), 409
+        _actualizando_en_curso = True
+
+    import shutil, zipfile, glob, subprocess
+    try:
+        # Re-check de version (defensa anti-race entre check y aplicar)
+        try:
+            r_check = api_actualizar_check()
+            data = r_check.get_json() if hasattr(r_check, "get_json") else {}
+            if not data.get("hay_actualizacion"):
+                # No hay update — abortamos por higiene.
+                with _actualizando_lock:
+                    _actualizando_en_curso = False
+                return jsonify({"ok": False,
+                                "error": "No hay una version nueva en la nube"}), 400
+            version_remota = data.get("version_remota") or "?"
+        except Exception:
+            # Si el re-check falla, seguimos igual (la descarga del ZIP
+            # confirmara el estado real).
+            version_remota = "?"
+
+        os.makedirs(_UPDATE_DIR, exist_ok=True)
+        log(f"[actualizar/aplicar] Descargando ZIP desde {_UPDATE_ZIP_URL}",
+            "info")
+        size = _descargar_url_a_fichero(_UPDATE_ZIP_URL, _UPDATE_ZIP_PATH,
+                                        timeout=600)
+        size_mb = round(size / 1024 / 1024, 1)
+        log(f"[actualizar/aplicar] OK descarga — {size_mb} MB", "ok")
+
+        # ── Descompresion en _UPDATE_DIR ──────────────────────────────
+        # Limpia ficheros viejos de updates anteriores (mantiene el .zip
+        # recien descargado pero borra el resto).
+        for p in glob.glob(os.path.join(_UPDATE_DIR, "*")):
+            if os.path.abspath(p) == os.path.abspath(_UPDATE_ZIP_PATH):
+                continue
+            try:
+                if os.path.isdir(p):
+                    shutil.rmtree(p, ignore_errors=True)
+                else:
+                    os.remove(p)
+            except Exception:
+                pass
+
+        with zipfile.ZipFile(_UPDATE_ZIP_PATH, "r") as zf:
+            base_abs = os.path.abspath(_UPDATE_DIR)
+            for member in zf.infolist():
+                member_path = os.path.abspath(
+                    os.path.join(base_abs, member.filename))
+                if (not member_path.startswith(base_abs + os.sep)
+                        and member_path != base_abs):
+                    raise RuntimeError(f"Zip slip detectado: {member.filename}")
+            zf.extractall(_UPDATE_DIR)
+        log(f"[actualizar/aplicar] OK descomprimido en {_UPDATE_DIR}", "ok")
+
+        # ── Localizar Setup-vX.exe dentro del ZIP descomprimido ───────
+        candidatos = glob.glob(os.path.join(
+            _UPDATE_DIR, "**", "GARUM_TPV_Manager_Setup_v*.exe"), recursive=True)
+        if not candidatos:
+            with _actualizando_lock:
+                _actualizando_en_curso = False
+            return jsonify({"ok": False,
+                            "error": ("ZIP descargado pero no se encontro "
+                                      "GARUM_TPV_Manager_Setup_v*.exe dentro. "
+                                      "Descomprime manualmente y ejecutalo.")}), 500
+        setup_exe = candidatos[0]
+        log(f"[actualizar/aplicar] Setup localizado: {setup_exe}", "info")
+
+        # ── Lanzar setup como proceso desacoplado ──────────────────────
+        DETACHED_PROCESS = 0x00000008
+        CREATE_NEW_PROCESS_GROUP = 0x00000200
+        flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+        try:
+            subprocess.Popen([setup_exe], creationflags=flags, close_fds=True)
+            log(f"[actualizar/aplicar] Setup lanzado en proceso desacoplado",
+                "ok")
+        except Exception as e_pop:
+            with _actualizando_lock:
+                _actualizando_en_curso = False
+            msg = str(e_pop).split("\n")[0]
+            return jsonify({"ok": False,
+                            "error": f"No se pudo lanzar el setup: {msg}"}), 500
+
+        # ── Programar cierre de la app en 5 s ──────────────────────────
+        # Tiempo suficiente para que el setup haya arrancado pero antes
+        # de que intente sobrescribir los ficheros que Flask tiene abiertos.
+        def _suicidar():
+            log(f"[actualizar/aplicar] os._exit(0) — cerrando para liberar "
+                f"ficheros al setup", "warn")
+            os._exit(0)
+
+        threading.Timer(5.0, _suicidar).start()
+
+        return jsonify({"ok": True,
+                        "version_a_instalar": version_remota,
+                        "setup_path": setup_exe,
+                        "segundos_para_cerrar": 5,
+                        "size_mb": size_mb})
+    except Exception as e:
+        with _actualizando_lock:
+            _actualizando_en_curso = False
+        msg = str(e).split("\n")[0]
+        log(f"[actualizar/aplicar] ERROR: {msg}", "error")
         return jsonify({"ok": False, "error": msg}), 500
 
 

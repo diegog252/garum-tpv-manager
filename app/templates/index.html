@@ -243,6 +243,24 @@ html,body{
 .sidebar.collapsed .sbn-label{opacity:0;width:0}
 .sidebar.collapsed .sbn{justify-content:center;padding:10px}
 
+/* Badge "punto rojo" para indicar update disponible (v8.0) */
+.sbn-badge{
+  margin-left:auto;
+  color:var(--red-s);
+  font-size:16px;
+  line-height:1;
+  font-weight:900;
+  animation:sbnBadgePulse 1.6s ease-in-out infinite;
+}
+.sidebar.collapsed .sbn-badge{
+  position:absolute; top:6px; right:6px;
+  margin-left:0; font-size:11px;
+}
+@keyframes sbnBadgePulse{
+  0%,100%{opacity:1}
+  50%{opacity:.45}
+}
+
 /* Separador nav */
 .sb-sep{height:1px;background:var(--border);margin:6px 8px}
 
@@ -852,7 +870,7 @@ html,body{
   <div class="sb-header">
     <div class="sb-logo">
       <div class="sb-logo-icon">G</div>
-      <span class="sb-logo-text">Mantenimiento<br>Garum <span style="font-size:10px;font-weight:400;opacity:.5;font-family:var(--mono)">v7.6</span></span>
+      <span class="sb-logo-text">Mantenimiento<br>Garum <span id="sbVersion" style="font-size:10px;font-weight:400;opacity:.5;font-family:var(--mono)">v8.0</span></span>
     </div>
     <button class="sb-toggle" id="sbToggle" onclick="toggleSidebar()" title="Colapsar menú">‹</button>
   </div>
@@ -905,6 +923,12 @@ html,body{
       <span class="sbn-icon">🏷</span><span class="sbn-label">Tipo de estación</span>
     </button>
     <div class="sb-sep"></div>
+    <!-- v8.0: pestaña de auto-actualizacion. El span#sbActualizarBadge se hace
+         visible cuando el check al login detecta version remota > local. -->
+    <button class="sbn" id="nt-actualizar" onclick="irA('actualizar')" style="position:relative">
+      <span class="sbn-icon">🔄</span><span class="sbn-label">Actualizar</span>
+      <span id="sbActualizarBadge" class="sbn-badge" style="display:none" title="Hay una versión nueva disponible">●</span>
+    </button>
   </nav>
 
   <div class="sb-bottom" id="sbBottom" style="display:none">
@@ -1018,6 +1042,15 @@ html,body{
       <div class="phl"><h2>Estado de los TPVs</h2><p id="panelSub">Escaneando...</p></div>
       <button class="btn btn-g btn-sm" onclick="reescanear()">↻ Actualizar</button>
     </div>
+
+    <!-- Banner de actualización disponible (v8.0). Lo hace visible act_check()
+         tras detectar version_remota > local. Click → va a la pestaña Actualizar. -->
+    <div id="actBanner" style="display:none;margin:0 0 14px 0;padding:10px 14px;background:var(--blue-bg);border:1px solid var(--blue-bd);border-radius:var(--r);font-size:13px;color:var(--text);align-items:center;gap:10px">
+      <span style="font-size:16px">🔄</span>
+      <span><strong>Hay una versión nueva disponible</strong> (<span id="actBannerVer">…</span>). Tu versión actual: <code id="actBannerLocal">…</code>.</span>
+      <button class="btn btn-p btn-sm" onclick="irA('actualizar')" style="margin-left:auto">Ir a Actualizar →</button>
+    </div>
+
     <div id="tpvGrid" class="tpv-grid"></div>
     <div class="opr" id="opR"></div>
 
@@ -1776,6 +1809,75 @@ html,body{
     </div>
   </div><!-- #page-tipoestacion -->
 
+  <!-- ACTUALIZAR (v8.0) — auto-update desde la nube 4GL -->
+  <div class="page" id="page-actualizar">
+    <div class="ph">
+      <div class="phl">
+        <h2>🔄 Actualizar GARUM TPV Manager</h2>
+        <p>Descarga e instala la última versión disponible desde la nube de 4GL.</p>
+      </div>
+      <button class="btn btn-g btn-sm" id="actBtnRecheck" onclick="act_recheck()" title="Volver a consultar la versión disponible">↻ Comprobar de nuevo</button>
+    </div>
+
+    <div style="padding:8px 18px 18px;max-width:800px">
+      <!-- Tarjeta principal: versión local vs versión remota -->
+      <div class="inst-section" style="margin-bottom:14px">
+        <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;padding:6px 4px">
+          <div>
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Esta instalación</div>
+            <div style="font-size:24px;font-weight:700;font-family:var(--mono);color:var(--text)" id="actVerLocal">—</div>
+          </div>
+          <div style="font-size:18px;color:var(--text3)">→</div>
+          <div>
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Disponible en la nube</div>
+            <div style="font-size:24px;font-weight:700;font-family:var(--mono);color:var(--teal)" id="actVerRemota">…</div>
+          </div>
+          <div style="margin-left:auto" id="actEstadoBox">
+            <span style="font-size:13px;color:var(--text3)">Comprobando…</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Banner de aviso pre-instalación -->
+      <div class="al al-w" id="actAvisoCerrar" style="display:none;margin-bottom:14px">
+        <span class="ai">⚠</span>
+        <div>
+          <strong>La sesión actual se cerrará en 5 segundos</strong> tras lanzar el instalador.
+          Cuando termine de instalar, vuelve a abrir <strong>GARUM TPV Manager</strong> desde el acceso directo del escritorio.
+          <br><span style="font-size:12px;color:var(--text2)">Las bases de datos PostgreSQL y tu configuración local no se tocan.</span>
+        </div>
+      </div>
+
+      <!-- Botón de acción -->
+      <div id="actAcciones" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+        <button class="btn btn-d" id="actBtnAplicar" onclick="act_aplicar()" style="display:none">
+          ▶ Descargar e instalar <span id="actBtnVersion"></span>
+        </button>
+        <span id="actHint" style="font-size:12px;color:var(--text2)"></span>
+      </div>
+
+      <!-- Log en vivo durante la operación -->
+      <pre id="actLog" class="inst-log" style="display:none;max-height:240px;overflow-y:auto;font-size:12px"></pre>
+
+      <!-- Info técnica colapsable -->
+      <details style="margin-top:18px;font-size:12px;color:var(--text2)">
+        <summary style="cursor:pointer">Detalles técnicos</summary>
+        <div style="margin-top:8px;line-height:1.6;padding-left:8px">
+          <strong>Cómo funciona</strong>:
+          <ol style="margin:6px 0 0 20px;line-height:1.55">
+            <li>La app consulta <code>https://4gl.fortiddns.com:1604/descargas/version_manager.txt</code> (1 KB) al hacer login.</li>
+            <li>Si la versión remota es mayor, muestra el badge rojo en el sidebar.</li>
+            <li>Al pulsar "Descargar e instalar", se baja el ZIP de distribución completo (~40 MB).</li>
+            <li>Se descomprime en <code>C:\GARUMTOOLS\Update\</code>.</li>
+            <li>Se localiza el <code>GARUM_TPV_Manager_Setup_v*.exe</code> y se ejecuta como proceso desacoplado.</li>
+            <li>La app actual se cierra (<code>os._exit</code>) en 5 s para liberar los ficheros que el setup va a sobrescribir.</li>
+            <li>El setup termina solo. Reabre la app desde el acceso directo del escritorio.</li>
+          </ol>
+        </div>
+      </details>
+    </div>
+  </div><!-- #page-actualizar -->
+
   <!-- CLIENTES (portado de tpv-clientes v1.1.0) -->
   <div class="page" id="page-clientes">
     <div class="ph">
@@ -2218,6 +2320,7 @@ function irA(id){
   if(id==='reintegrar'){rei_inicializar();}
   if(id==='art-carb'){artCarbInicializar();}
   if(id==='tipoestacion'){tipoEstInicializar();}
+  if(id==='actualizar'){act_inicializar();}
   if(id==='conftpv'){
     ctabSwitch('config');
     poblarSelConfTPV();
@@ -2556,6 +2659,10 @@ function _continuarOnConn(){
   else{dot.className='cdot ok';lbl.className='clbl ok';var selVal=document.getElementById('cHostSel').value;var ip=selVal==='__custom__'?document.getElementById('cHostCustom').value:selVal;lbl.textContent=(ip||'10.0.0.101')+'/tpv';}
   cargarEstacion();
   irA('panel');escanear();
+  // v8.0: tras login, check silencioso de actualización + carga de versión.
+  // Si la nube no responde no muestra nada (defensa).
+  act_loadVersion();
+  act_check();
 }
 
 async function desconectar(){
@@ -7810,6 +7917,181 @@ async function setupGarumDescargar(){
     });
   }
   btns.forEach(function(b){ b.disabled = false; });
+}
+
+
+// ============================================================================
+// MODULO ACTUALIZAR (v8.0) — auto-actualización desde la nube 4GL.
+// 3 funciones:
+//   act_check()        — silenciosa, se llama al login. Si hay update,
+//                        activa el badge del sidebar + banner en Panel.
+//   act_inicializar()  — al entrar a la pestaña Actualizar, rellena UI.
+//   act_aplicar()      — descarga ZIP, lanza setup, app se cierra en 5s.
+// ============================================================================
+
+var actEstado = {checked: false, hay_actualizacion: false,
+                 version_local: null, version_remota: null};
+
+async function act_loadVersion(){
+  // Reemplaza el v8.0 hardcoded del sidebar por el valor que devuelve el
+  // backend — así no hay que recordar cambiarlo en el HTML cada release.
+  try {
+    var r = await get('/api/app-info');
+    if(r && r.ok && r.version){
+      var el = document.getElementById('sbVersion');
+      if(el) el.textContent = 'v'+r.version;
+      actEstado.version_local = r.version;
+    }
+  } catch(e){ /* silencio */ }
+}
+
+async function act_check(){
+  // Llamado tras login exitoso. Silencio total si falla (sin red, etc.).
+  try {
+    var r = await get('/api/actualizar/check');
+  } catch(e){ return; }
+  if(!r || !r.ok) return;
+  actEstado.checked = true;
+  actEstado.hay_actualizacion = !!r.hay_actualizacion;
+  actEstado.version_local = r.version_local;
+  actEstado.version_remota = r.version_remota;
+  if(r.hay_actualizacion){
+    // Badge en sidebar
+    var badge = document.getElementById('sbActualizarBadge');
+    if(badge) badge.style.display = 'inline';
+    // Banner en Panel
+    var b = document.getElementById('actBanner');
+    var verEl = document.getElementById('actBannerVer');
+    var locEl = document.getElementById('actBannerLocal');
+    if(b && verEl && locEl){
+      verEl.textContent = 'v'+(r.version_remota||'?');
+      locEl.textContent = 'v'+(r.version_local||'?');
+      b.style.display = 'flex';
+    }
+  }
+}
+
+function act_inicializar(){
+  // Al entrar a la pestaña Actualizar, refresca la UI con el último estado.
+  // Si nunca se ha hecho check (improbable), lo hace ahora.
+  if(!actEstado.checked){
+    act_recheck();
+    return;
+  }
+  _act_renderEstado();
+}
+
+async function act_recheck(){
+  var btn = document.getElementById('actBtnRecheck');
+  var box = document.getElementById('actEstadoBox');
+  if(btn) btn.disabled = true;
+  if(box) box.innerHTML = '<span style="font-size:13px;color:var(--text3)">Comprobando…</span>';
+  try {
+    var r = await get('/api/actualizar/check');
+    if(!r || !r.ok){
+      if(box) box.innerHTML = '<span style="font-size:13px;color:var(--red-s)">✕ No se pudo consultar</span>';
+      if(btn) btn.disabled = false;
+      return;
+    }
+    actEstado.checked = true;
+    actEstado.hay_actualizacion = !!r.hay_actualizacion;
+    actEstado.version_local = r.version_local;
+    actEstado.version_remota = r.version_remota;
+    // Si ahora hay update, también activa el badge
+    if(r.hay_actualizacion){
+      var badge = document.getElementById('sbActualizarBadge');
+      if(badge) badge.style.display = 'inline';
+    } else {
+      var badge2 = document.getElementById('sbActualizarBadge');
+      if(badge2) badge2.style.display = 'none';
+      var ban = document.getElementById('actBanner');
+      if(ban) ban.style.display = 'none';
+    }
+    _act_renderEstado();
+  } catch(e){
+    if(box) box.innerHTML = '<span style="font-size:13px;color:var(--red-s)">✕ '+H(String(e))+'</span>';
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
+function _act_renderEstado(){
+  var verLocalEl = document.getElementById('actVerLocal');
+  var verRemEl   = document.getElementById('actVerRemota');
+  var estado     = document.getElementById('actEstadoBox');
+  var btn        = document.getElementById('actBtnAplicar');
+  var btnVer     = document.getElementById('actBtnVersion');
+  var aviso      = document.getElementById('actAvisoCerrar');
+  if(verLocalEl) verLocalEl.textContent = 'v'+(actEstado.version_local||'?');
+  if(verRemEl)   verRemEl.textContent   = actEstado.version_remota ? ('v'+actEstado.version_remota) : '—';
+  if(actEstado.hay_actualizacion){
+    if(estado) estado.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:var(--blue-bg);color:var(--blue);border-radius:14px;font-size:12px;font-weight:600">🔄 Actualización disponible</span>';
+    if(btn){ btn.style.display = ''; btn.disabled = false; }
+    if(btnVer) btnVer.textContent = 'v'+(actEstado.version_remota||'?');
+    if(aviso) aviso.style.display = '';
+  } else {
+    if(estado) estado.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:var(--green-bg);color:var(--green);border-radius:14px;font-size:12px;font-weight:600">✓ Estás al día</span>';
+    if(btn) btn.style.display = 'none';
+    if(aviso) aviso.style.display = 'none';
+  }
+}
+
+async function act_aplicar(){
+  if(!actEstado.hay_actualizacion){
+    alert('No hay actualización disponible.');
+    return;
+  }
+  if(!confirm('Se va a descargar e instalar GARUM TPV Manager v'+(actEstado.version_remota||'?')+'.\n\n'
+              +'• Esta sesión se cerrará en 5 segundos tras lanzar el instalador.\n'
+              +'• Tus BDs PostgreSQL y configuración local NO se tocan.\n'
+              +'• Tras la instalación, abre la app desde el acceso directo del escritorio.\n\n'
+              +'¿Continuar?')) return;
+  var btn  = document.getElementById('actBtnAplicar');
+  var btnR = document.getElementById('actBtnRecheck');
+  var hint = document.getElementById('actHint');
+  var logEl= document.getElementById('actLog');
+  if(btn)  btn.disabled = true;
+  if(btnR) btnR.disabled = true;
+  if(hint){ hint.textContent = '⏳ Descargando ZIP (~40 MB)…'; hint.style.color = 'var(--text2)'; }
+  if(logEl){ logEl.style.display = ''; logEl.textContent = '⏳ Descargando ZIP de distribución desde la nube 4GL…\n'; }
+  var r;
+  try {
+    r = await post('/api/actualizar/aplicar', {});
+  } catch(e){
+    if(hint){ hint.textContent = '✕ Error de red: '+String(e); hint.style.color = 'var(--red-s)'; }
+    if(btn)  btn.disabled = false;
+    if(btnR) btnR.disabled = false;
+    return;
+  }
+  if(!r || !r.ok){
+    var msg = (r && r.error) || 'Error desconocido';
+    if(hint){ hint.textContent = '✕ '+msg; hint.style.color = 'var(--red-s)'; }
+    if(logEl) logEl.textContent += '✕ '+msg+'\n';
+    if(btn)  btn.disabled = false;
+    if(btnR) btnR.disabled = false;
+    return;
+  }
+  // OK: setup lanzado, app se cerrará en 5s.
+  var mb = (r.size_mb||0).toFixed(1);
+  if(logEl){
+    logEl.textContent += '✓ ZIP descargado ('+mb+' MB)\n';
+    logEl.textContent += '✓ Descomprimido en C:\\GARUMTOOLS\\Update\\\n';
+    logEl.textContent += '✓ Setup lanzado: '+(r.setup_path||'?')+'\n';
+    logEl.textContent += '\n⏳ La app se cerrará en '+(r.segundos_para_cerrar||5)+' s para liberar los ficheros al instalador.\n';
+    logEl.textContent += '   Vuelve a abrirla desde el acceso directo del escritorio cuando el setup termine.\n';
+  }
+  // Countdown visible en el botón
+  var seg = r.segundos_para_cerrar || 5;
+  var tick = function(){
+    if(seg <= 0){
+      if(hint){ hint.textContent = 'Cerrando aplicación…'; hint.style.color = 'var(--amber)'; }
+      return;
+    }
+    if(hint){ hint.textContent = '⏳ La app se cerrará en '+seg+' s · ejecutándose el instalador'; hint.style.color = 'var(--amber)'; }
+    seg--;
+    setTimeout(tick, 1000);
+  };
+  tick();
 }
 
 

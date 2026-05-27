@@ -1,7 +1,59 @@
-GARUM TPV Manager v7.6
+GARUM TPV Manager v8.0
 =======================
 Herramienta interna para gestionar la integracion de TPVs GARUM.
 Diseno corporativo 4GL Solutions.
+
+
+NOVEDADES v8.0 — AUTO-ACTUALIZACION DESDE LA NUBE 4GL
+------------------------------------------------------
+Salto de version mayor. Cambio que cierra el flujo de distribucion:
+ya no hay que descargar nuevas versiones manualmente desde OneDrive /
+GitHub / e-mail — la propia app las descarga e instala con un clic.
+
+COMO FUNCIONA
+  1. Al hacer login, la app consulta silenciosamente
+     https://4gl.fortiddns.com:1604/descargas/version_manager.txt
+     (fichero ligero de 1 KB con la version actual). Si la version remota
+     es mayor que la de esta instalacion, muestra un BADGE rojo (●) en la
+     pestaña "🔄 Actualizar" del sidebar y un BANNER azul en el Panel.
+
+  2. El tecnico pulsa "Ir a Actualizar" o entra directamente a la pestaña.
+     Ve dos cosas: la version local + la version remota.
+
+  3. Pulsa "▶ Descargar e instalar v8.X" y se desencadena:
+       - Descarga del ZIP de distribucion completo (~40 MB).
+       - Descompresion automatica en C:\GARUMTOOLS\Update\.
+       - Localizacion del GARUM_TPV_Manager_Setup_v*.exe interno.
+       - Ejecucion del setup como proceso DESACOPLADO de la app actual.
+       - La app actual se cierra a si misma tras 5 segundos (os._exit)
+         para liberar los ficheros que el instalador va a sobrescribir.
+
+  4. El instalador NSIS hace su trabajo (~30 s).
+     El tecnico abre la app desde el acceso directo del escritorio →
+     ya tiene la version nueva.
+
+PARA TI (4GL):
+  - Sube a https://4gl.fortiddns.com:1604/descargas/ el nuevo
+    GARUM_TPV_Manager_v7.4_distribucion.zip con el contenido actualizado.
+    El nombre del fichero NO cambia entre releases — solo el contenido.
+  - Edita version_manager.txt y pon dentro la nueva version (p.ej. "8.1").
+
+  Eso es todo. Los TPVs de los clientes ven el badge automaticamente al
+  siguiente login.
+
+CASOS DEFENSIVOS:
+  - Sin red al login → check falla silenciosamente, sin badge ni error.
+  - Version local = remota → "✓ Estás al día", sin badge.
+  - Version local > remota (dev / rollback) → sin badge.
+  - Setup.exe no encontrado en el ZIP → mensaje claro, app no se cierra.
+  - Doble click en "Instalar" → flag interno impide segunda descarga.
+
+OTROS CAMBIOS DE v8.0:
+  - Constante APP_VERSION="8.0" como fuente unica de verdad. El sidebar
+    lee la version desde /api/app-info, asi futuros bumps solo requieren
+    cambiar esa constante (+ los .bat / NSI / docs).
+  - Helper compartido _descargar_url_a_fichero (atomico .tmp+replace
+    con fallback SSL no-verify). Usado por Setup-GARUM y Actualizar.
 
 
 NOVEDADES v7.6 — PASO 0 "DESCARGAR INSTALADORES" EN REINTEGRAR + NUEVO TPV
