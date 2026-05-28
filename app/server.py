@@ -1,6 +1,42 @@
 """
-GARUM TPV Manager - Backend v8.0
+GARUM TPV Manager - Backend v8.1
 ==================================
+v8.1:   HARDENING DE PRODUCCION (4 cambios sobre v8.0 detectados en cliente
+        real V2 POLIGONO, PostgreSQL 9.5 con BD WIN1252, 28/05/2026):
+
+        1. PASO PREVIO 2 nuevo "🔓 Acceso PostgreSQL en red". Bloque
+           <details> colapsable en Reintegrar TPV y Nuevo TPV que automatiza
+           la configuracion de pg_hba.conf + postgresql.conf y recarga
+           PostgreSQL sin reiniciar (pg_ctl reload). Detecta la version
+           instalada via glob de C:\\Program Files\\PostgreSQL\\*\\data\\.
+           Backup atomico .bak antes de tocar nada. Idempotente.
+           Endpoints: GET /api/pg-acceso/info, POST /api/pg-acceso/configurar.
+
+        2. Robocopy paso 6 de Reintegrar TPV con estrategia EN CASCADA:
+           primero intenta robocopy directo (sin net use) — si el usuario
+           Windows del tecnico ya tiene acceso a \\IP\\C$ via NTLM/dominio,
+           funciona sin requerir el usuario integracion4gl en el origen.
+           Si robocopy directo falla (exit >= 8), fallback a net use con
+           integracion4gl. Asi no exige tener el usuario creado en ambos
+           extremos. Mensaje claro si ningun metodo funciona.
+
+        3. Helper nuevo _conn_tolerante(host, port, ...) que envuelve
+           psycopg2.connect, detecta server_encoding y sincroniza el
+           client_encoding. Evita UnicodeDecodeError ('utf-8' codec can't
+           decode byte 0xed') al conectar a BDs PostgreSQL antiguas con
+           encoding WIN1252 / LATIN1 / SQL_ASCII. Aplicado en las 5
+           conexiones cross-TPV: _detectar_principal_red, api_series_mapa_red,
+           api_series_marcar_red, api_series_marcar_global (descubrir+aplicar).
+
+        4. Plan visual de Reintegrar TPV: la IP "10.0.0.101" hardcoded en
+           paso 1 del plan ahora se sustituye dinamicamente por la IP de
+           origen real seleccionada por el tecnico (clase .rei-ip-origen-txt
+           + JS en rei_validar). Antes mostraba siempre 10.0.0.101 aunque
+           el origen real fuera otra IP (confuso para el tecnico).
+
+        APP_VERSION="8.1" — bumpeado, propaga al sidebar y al check de
+        actualizaciones automaticamente.
+
 v8.0:   AUTO-ACTUALIZACION desde la nube 4GL. Cambio mayor que cierra el
         flujo de distribucion: ya no hay que descargar e instalar a mano.
 
@@ -1955,7 +1991,7 @@ def api_series_marcar_red():
         nombre_tpv = tpv.get("nombre", host)
         c = None
         try:
-            c = psycopg2.connect(host=host, port=5432, dbname="tpv",
+            c = _conn_tolerante(host=host, port=5432, dbname="tpv",
                                  user="postgres", password=pwd,
                                  connect_timeout=5)
             c.autocommit = False
@@ -2060,7 +2096,7 @@ def api_series_marcar_global():
         nombre = tpv.get("nombre", host)
         c = None
         try:
-            c = psycopg2.connect(host=host, port=5432, dbname="tpv",
+            c = _conn_tolerante(host=host, port=5432, dbname="tpv",
                                  user="postgres", password=pwd,
                                  connect_timeout=5)
             cur = c.cursor()
@@ -2129,7 +2165,7 @@ def api_series_marcar_global():
         # el id local para esta fase, solo el mapping global).
         c = None
         try:
-            c = psycopg2.connect(host=host, port=5432, dbname="tpv",
+            c = _conn_tolerante(host=host, port=5432, dbname="tpv",
                                  user="postgres", password=pwd,
                                  connect_timeout=5)
             c.autocommit = False
@@ -2248,7 +2284,7 @@ def api_series_mapa_red():
         nombre = tpv.get("nombre", host)
         c = None
         try:
-            c = psycopg2.connect(host=host, port=5432, dbname="tpv",
+            c = _conn_tolerante(host=host, port=5432, dbname="tpv",
                                  user="postgres", password=pwd,
                                  connect_timeout=5)
             cur = c.cursor()
@@ -6922,7 +6958,7 @@ def _detectar_principal_red(num_tpv_local=None, password=None):
         n, ip = n_ip
         c = None
         try:
-            c = psycopg2.connect(host=ip, port=5432, dbname="tpv",
+            c = _conn_tolerante(host=ip, port=5432, dbname="tpv",
                                   user="postgres", password=pwd,
                                   connect_timeout=2)
             cur = c.cursor()
@@ -7359,113 +7395,117 @@ def _job_reintegrar(job_id, password, num_tpv, ip_origen, ip_principal,
             _job_log(job, f"  Destino: {_dst}")
             flags_rc = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
 
-            # PASO previo: autenticar la sesion SMB con el usuario integracion4gl.
-            # Asi robocopy puede acceder a \\IP\C$ aunque el usuario Windows actual
-            # del TPV destino no exista en el principal o no tenga admin alli.
-            # Limpiamos primero cualquier conexion previa al share (silenciosamente),
-            # luego abrimos con credenciales explicitas.
-            try:
-                subprocess.run(["net", "use", _share, "/delete"],
-                               capture_output=True, text=True, timeout=10,
-                               creationflags=flags_rc)
-            except Exception:
-                pass  # ignoramos errores — solo cleanup defensivo
-            _job_log(job, f"  Autenticando como '{_USYS_USER}' contra {_share}...")
-            try:
-                _r_netuse = subprocess.run(
-                    ["net", "use", _share, "/user:" + _USYS_USER, _USYS_PWD],
-                    capture_output=True, text=True, timeout=15,
-                    creationflags=flags_rc,
-                )
-                if _r_netuse.returncode != 0:
-                    _err_brief = (_r_netuse.stderr or _r_netuse.stdout or "").strip().split("\n")[-1][:200]
-                    _job_log(job, f"  ✗ net use fallo: {_err_brief}")
-                    _job_log(job, f"  → Comprueba que el usuario '{_USYS_USER}' existe en {ip_origen}")
-                    _job_log(job, f"    (modulo 🔐 Usuario sistema, ejecutado en el PRINCIPAL).")
-                    _job_step(job, 6, "error")
-                    # No intentamos el robocopy si la autenticacion fallo.
-                    raise RuntimeError("net use fallo")
-                _job_log(job, f"  ✓ Sesion SMB autenticada como '{_USYS_USER}'")
-            except subprocess.TimeoutExpired:
-                _job_log(job, "  ✗ net use timeout — ¿el principal responde?")
-                _job_step(job, 6, "error")
-                raise
-            except RuntimeError:
-                # ya logueado y marcado
-                raise
+            # v8.1: ESTRATEGIA EN CASCADA para evitar fallar si integracion4gl no
+            # existe en el ORIGEN pero el usuario Windows actual del técnico SÍ
+            # tiene acceso. Visto en cliente V2 POLIGONO 27/05/2026.
+            # (1) Intentar robocopy DIRECTO (sin net use).
+            # (2) Si falla, hacer net use con integracion4gl como fallback.
+            # (3) Si todo falla, error claro.
 
-            try:
-                # robocopy es robusto en Windows: maneja ficheros en uso, reintentos,
-                # paths largos, etc. Codigos 0-7 = exito (con o sin copias), 8+ = error.
-                # /E       — copiar subdirectorios (incluye vacios)
-                # /COPY:DAT— copiar Data + Atributos + Timestamps (sin ACLs)
-                # /R:1 /W:2 — un reintento, esperar 2s entre cada uno
-                # SIN /NFL — queremos los nombres de ficheros para que el frontend
-                # los muestre en vivo. Mantenemos /NDL /NJH /NJS /NC /NS /NP para
-                # no inflar mas la salida.
+            def _ejecutar_robocopy():
+                """Lanza robocopy streaming. Devuelve (exit_code, ficheros_copiados)."""
                 cmd_rc = [
                     "robocopy", _src, _dst,
                     "/E", "/COPY:DAT", "/R:1", "/W:2",
                     "/NDL", "/NJH", "/NJS", "/NC", "/NS", "/NP",
                 ]
-                # Streaming: lanzamos robocopy con Popen y leemos stdout linea a
-                # linea. Cada linea se agrega al job log para que el frontend
-                # muestre la copia en vivo en el modal ovCopia.
                 proc = subprocess.Popen(
                     cmd_rc, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True, creationflags=flags_rc, bufsize=1,
                 )
-                _ficheros_copiados = 0
+                n = 0
                 for line in proc.stdout:
                     line = line.rstrip()
-                    if not line:
-                        continue
-                    _ficheros_copiados += 1
-                    # Para evitar que el log se infle con miles de lineas en una
-                    # copia grande, registramos cada linea pero comprimimos las
-                    # rutas dejando solo el nombre relativo a C:\GARUM.
+                    if not line: continue
+                    n += 1
                     short = line.replace(_src + "\\", "").replace(_dst + "\\", "")
                     _job_log(job, f"  {short[:160]}")
                 try:
                     proc.wait(timeout=600)
                 except subprocess.TimeoutExpired:
                     proc.kill()
+                    raise
+                return (proc.returncode, n)
+
+            # Cleanup defensivo de cualquier conexion previa al share
+            try:
+                subprocess.run(["net", "use", _share, "/delete"],
+                               capture_output=True, text=True, timeout=10,
+                               creationflags=flags_rc)
+            except Exception:
+                pass
+
+            rc_robo = -1
+            ficheros = 0
+            usado_net_use = False
+            try:
+                # ── INTENTO 1: robocopy directo (usuario Windows actual) ───
+                _job_log(job, "  Intento 1: robocopy directo con usuario Windows actual...")
+                try:
+                    rc_robo, ficheros = _ejecutar_robocopy()
+                except subprocess.TimeoutExpired:
                     _job_log(job, "  ✗ robocopy timeout (>10 min) — comprueba la red.")
                     _job_step(job, 6, "error")
                     raise
-                rc_robo = proc.returncode
-                # Tipico robocopy: 0=nada que copiar, 1=copiados OK, 2=extras detectados,
-                # 3=copiados+extras, 4=mismatches, 5..7=combinaciones. 8+ = fallo real.
+                except FileNotFoundError:
+                    _job_log(job, "  ✗ robocopy.exe no encontrado en este equipo")
+                    _job_step(job, 6, "error")
+                    raise RuntimeError("no robocopy")
+
                 if rc_robo < 8:
-                    _job_log(job, f"  ✓ Copia completada — {_ficheros_copiados} entradas (robocopy exit={rc_robo})")
+                    # Éxito con acceso directo, no hace falta net use
+                    _job_log(job, f"  ✓ Copia completada (acceso Windows actual) — {ficheros} entradas (exit={rc_robo})")
                     _job_step(job, 6, "done")
                 else:
-                    _job_log(job, f"  ✗ robocopy fallo (exit={rc_robo})")
-                    _job_log(job, f"  Verifica permisos: ¿este usuario es admin en {ip_origen}?")
-                    _job_step(job, 6, "error")
-                    # NO marcamos error global — el resto del proceso fue OK.
-            except subprocess.TimeoutExpired:
-                # Ya logueado dentro del try; aqui solo evitamos doble log.
-                pass
-            except FileNotFoundError:
-                _job_log(job, "  ✗ robocopy.exe no encontrado en este equipo (¿Windows muy antiguo?)")
-                _job_step(job, 6, "error")
+                    # ── INTENTO 2: fallback con net use integracion4gl ───
+                    _job_log(job, f"  ⚠ Robocopy directo fallo (exit={rc_robo}). Intentando con '{_USYS_USER}'...")
+                    try:
+                        _r_netuse = subprocess.run(
+                            ["net", "use", _share, "/user:" + _USYS_USER, _USYS_PWD],
+                            capture_output=True, text=True, timeout=15,
+                            creationflags=flags_rc,
+                        )
+                        if _r_netuse.returncode != 0:
+                            _err_brief = (_r_netuse.stderr or _r_netuse.stdout or "").strip().split("\n")[-1][:200]
+                            _job_log(job, f"  ✗ net use {_USYS_USER} fallo: {_err_brief}")
+                            _job_log(job, f"  → Sin acceso a {_share}. Comprueba que:")
+                            _job_log(job, f"     a) Tu usuario Windows tiene admin en {ip_origen}, O")
+                            _job_log(job, f"     b) El usuario '{_USYS_USER}' existe en {ip_origen}")
+                            _job_log(job, f"        (módulo 🔐 Usuario sistema, ejecutado en el PRINCIPAL).")
+                            _job_step(job, 6, "error")
+                        else:
+                            usado_net_use = True
+                            _job_log(job, f"  ✓ Autenticado como '{_USYS_USER}'. Reintentando robocopy...")
+                            try:
+                                rc_robo, ficheros = _ejecutar_robocopy()
+                            except subprocess.TimeoutExpired:
+                                _job_log(job, "  ✗ robocopy timeout (>10 min) tras net use.")
+                                _job_step(job, 6, "error")
+                                raise
+                            if rc_robo < 8:
+                                _job_log(job, f"  ✓ Copia completada con '{_USYS_USER}' — {ficheros} entradas (exit={rc_robo})")
+                                _job_step(job, 6, "done")
+                            else:
+                                _job_log(job, f"  ✗ robocopy fallo incluso con '{_USYS_USER}' (exit={rc_robo})")
+                                _job_step(job, 6, "error")
+                    except subprocess.TimeoutExpired:
+                        _job_log(job, "  ✗ net use timeout — ¿el principal responde?")
+                        _job_step(job, 6, "error")
             except RuntimeError:
-                # net use fallo — ya logueado y marcado el step 6 como error.
-                pass
+                pass  # ya logueado y marcado
             except Exception as e:
                 msg = str(e).split("\n")[0]
                 _job_log(job, f"  ✗ Error inesperado copiando C:\\GARUM: {msg}")
                 _job_step(job, 6, "error")
             finally:
-                # Cleanup: cerrar la conexion SMB autenticada para no dejar la
-                # sesion del usuario integracion4gl colgada en la maquina.
-                try:
-                    subprocess.run(["net", "use", _share, "/delete"],
-                                   capture_output=True, text=True, timeout=10,
-                                   creationflags=flags_rc)
-                except Exception:
-                    pass  # cleanup defensivo — no afecta al resultado del job
+                # Cleanup del net use si lo abrimos
+                if usado_net_use:
+                    try:
+                        subprocess.run(["net", "use", _share, "/delete"],
+                                       capture_output=True, text=True, timeout=10,
+                                       creationflags=flags_rc)
+                    except Exception:
+                        pass
 
     # ── 5. EDITAR hibernateCentral.cfg.xml (opcional) — paso 7 del plan ────────
     # Si la copia de C:\GARUM (step 6) fallo y el usuario habia pedido la copia,
@@ -7836,7 +7876,7 @@ def _crear_usuario_windows_local():
 # solo este valor (+ los .bat / NSI / docs) en el siguiente release.
 # ─────────────────────────────────────────────────────────────────────────────
 
-APP_VERSION = "8.0"
+APP_VERSION = "8.1"
 APP_NAME    = "GARUM TPV Manager"
 _USER_AGENT = f"GARUM-TPV-Manager/{APP_VERSION}"
 
@@ -7894,6 +7934,209 @@ def _comparar_versiones(local, remota):
     if a < b: return -1
     if a > b: return 1
     return 0
+
+
+def _conn_tolerante(host, port=5432, dbname="tpv", user="postgres",
+                    password=None, connect_timeout=5):
+    """v8.1: wrapper de psycopg2.connect que detecta el encoding del servidor
+    y lo sincroniza con el cliente para evitar UnicodeDecodeError en BDs
+    antiguas (WIN1252 / LATIN1 / SQL_ASCII). Visto en cliente V2 POLIGONO
+    con PostgreSQL 9.5 + descripciones con tildes en `serie.descripcion`."""
+    c = psycopg2.connect(host=host, port=port, dbname=dbname, user=user,
+                         password=password, connect_timeout=connect_timeout)
+    try:
+        cur = c.cursor()
+        cur.execute("SHOW server_encoding")
+        srv_enc = (cur.fetchone() or ["UTF8"])[0]
+        cur.close()
+        if srv_enc and srv_enc.upper() not in ("UTF8", "UTF-8"):
+            c.set_client_encoding(srv_enc)
+    except Exception:
+        pass  # si falla la detección, seguimos con UTF-8 por defecto
+    return c
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v8.1 — PASO PREVIO "Acceso PostgreSQL en red". Detecta la instalación de
+# PostgreSQL local, hace backup de pg_hba.conf y postgresql.conf, asegura
+# listen_addresses='*' + entrada para 10.0.0.0/24, y recarga sin reiniciar.
+# Cliente típico: C:\Program Files\PostgreSQL\9.5\data\
+# ─────────────────────────────────────────────────────────────────────────────
+
+import re as _re_pg
+
+def _localizar_postgresql_paths():
+    """Detecta versión y rutas via glob en C:\\Program Files\\PostgreSQL\\*\\
+    Devuelve dict {data_dir, hba_path, conf_path, pg_ctl, version, ok}.
+    Si hay varias versiones, elige la mayor (por número)."""
+    import glob
+    candidatos = glob.glob(r"C:\Program Files\PostgreSQL\*\data\pg_hba.conf")
+    candidatos += glob.glob(r"C:\Program Files (x86)\PostgreSQL\*\data\pg_hba.conf")
+    if not candidatos:
+        return {"ok": False, "motivo": "No se encontró ninguna instalación de PostgreSQL en C:\\Program Files\\PostgreSQL\\"}
+    def _ver_key(p):
+        m = _re_pg.search(r"PostgreSQL\\([\d.]+)\\", p)
+        if not m: return (0,)
+        return tuple(int(x) for x in m.group(1).split(".") if x.isdigit())
+    candidatos.sort(key=_ver_key, reverse=True)
+    hba = candidatos[0]
+    data_dir = os.path.dirname(hba)
+    install_dir = os.path.dirname(data_dir)
+    conf = os.path.join(data_dir, "postgresql.conf")
+    pg_ctl = os.path.join(install_dir, "bin", "pg_ctl.exe")
+    m = _re_pg.search(r"PostgreSQL\\([\d.]+)\\", hba)
+    version = m.group(1) if m else "?"
+    return {"ok": True, "data_dir": data_dir, "hba_path": hba,
+            "conf_path": conf, "pg_ctl": pg_ctl, "version": version,
+            "install_dir": install_dir}
+
+
+@app.route("/api/pg-acceso/info")
+@need_conn
+def api_pg_acceso_info():
+    """Devuelve la ubicación detectada de PostgreSQL local + estado actual de
+    los 2 .conf (resumido). Útil para que el frontend muestre la info antes
+    de pulsar 'Configurar'."""
+    paths = _localizar_postgresql_paths()
+    if not paths.get("ok"):
+        return jsonify(paths)
+    # Resumen rápido del estado actual
+    listen_ok = False
+    hba_subnet_ok = False
+    try:
+        with open(paths["conf_path"], "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                s = line.strip()
+                if s.startswith("listen_addresses") and "*" in s and not s.startswith("#"):
+                    listen_ok = True
+                    break
+    except Exception:
+        pass
+    try:
+        with open(paths["hba_path"], "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                s = line.strip()
+                if s.startswith("#"): continue
+                if "10.0.0.0/24" in s:
+                    hba_subnet_ok = True
+                    break
+    except Exception:
+        pass
+    return jsonify({"ok": True,
+                    "data_dir": paths["data_dir"],
+                    "hba_path": paths["hba_path"],
+                    "conf_path": paths["conf_path"],
+                    "pg_ctl": paths["pg_ctl"],
+                    "version": paths["version"],
+                    "listen_addresses_ok": listen_ok,
+                    "hba_subnet_ok": hba_subnet_ok,
+                    "ya_configurado": listen_ok and hba_subnet_ok})
+
+
+@app.route("/api/pg-acceso/configurar", methods=["POST"])
+@csrf
+@need_conn
+def api_pg_acceso_configurar():
+    """v8.1: edita postgresql.conf (listen_addresses='*') + pg_hba.conf
+    (añade host all all 10.0.0.0/24 md5) + pg_ctl reload. Backups .bak.
+    Idempotente: si ya estaba configurado, no duplica.
+
+    Returns {ok, listen_addresses_cambiado, hba_subnet_anadida,
+             reload_ok, paths, reload_output?}
+    """
+    import subprocess, shutil
+    paths = _localizar_postgresql_paths()
+    if not paths.get("ok"):
+        return jsonify({"ok": False, "error": paths.get("motivo", "PostgreSQL no localizado")}), 400
+
+    cambios = {"listen_addresses_cambiado": False,
+               "hba_subnet_anadida": False,
+               "reload_ok": False}
+
+    # 1) postgresql.conf — listen_addresses
+    try:
+        with open(paths["conf_path"], "r", encoding="utf-8", errors="ignore") as f:
+            lines_conf = f.readlines()
+        # Backup
+        bak_conf = paths["conf_path"] + ".bak"
+        if not os.path.exists(bak_conf):
+            shutil.copy2(paths["conf_path"], bak_conf)
+        # Buscar línea listen_addresses (commented o no). Si ya es '*' uncommented, skip.
+        nuevas = []
+        encontrado_activo = False
+        for ln in lines_conf:
+            stripped = ln.strip()
+            if _re_pg.match(r"^\s*#?\s*listen_addresses\s*=", ln):
+                if not stripped.startswith("#"):
+                    if "'*'" in ln:
+                        encontrado_activo = True
+                        nuevas.append(ln)
+                        continue
+                # comentado o con valor distinto → reemplazar por '*'
+                nuevas.append("listen_addresses = '*'\t\t# v8.1 GARUM TPV Manager\n")
+                cambios["listen_addresses_cambiado"] = True
+            else:
+                nuevas.append(ln)
+        if not encontrado_activo and not cambios["listen_addresses_cambiado"]:
+            # No había ninguna línea → append al final
+            nuevas.append("\nlisten_addresses = '*'\t\t# v8.1 GARUM TPV Manager\n")
+            cambios["listen_addresses_cambiado"] = True
+        if cambios["listen_addresses_cambiado"]:
+            tmp = paths["conf_path"] + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.writelines(nuevas)
+            os.replace(tmp, paths["conf_path"])
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"postgresql.conf: {str(e).split(chr(10))[0]}"}), 500
+
+    # 2) pg_hba.conf — añadir 10.0.0.0/24 si no existe
+    try:
+        with open(paths["hba_path"], "r", encoding="utf-8", errors="ignore") as f:
+            lines_hba = f.readlines()
+        bak_hba = paths["hba_path"] + ".bak"
+        if not os.path.exists(bak_hba):
+            shutil.copy2(paths["hba_path"], bak_hba)
+        # Comprobar si ya hay una línea con 10.0.0.0/24 (no comentada)
+        ya = any(("10.0.0.0/24" in ln and not ln.lstrip().startswith("#"))
+                 for ln in lines_hba)
+        if not ya:
+            lines_hba.append("\n# v8.1 GARUM TPV Manager — acceso desde la red GARUM\n")
+            lines_hba.append("host\tall\tall\t10.0.0.0/24\tmd5\n")
+            tmp = paths["hba_path"] + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.writelines(lines_hba)
+            os.replace(tmp, paths["hba_path"])
+            cambios["hba_subnet_anadida"] = True
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"pg_hba.conf: {str(e).split(chr(10))[0]}"}), 500
+
+    # 3) pg_ctl reload — solo si hubo cambios o si el usuario nos lo pide igual
+    reload_output = ""
+    if cambios["listen_addresses_cambiado"] or cambios["hba_subnet_anadida"]:
+        try:
+            flags = 0x08000000 if sys.platform == "win32" else 0
+            proc = subprocess.run(
+                [paths["pg_ctl"], "reload", "-D", paths["data_dir"]],
+                capture_output=True, text=True, timeout=30,
+                creationflags=flags,
+            )
+            reload_output = (proc.stdout or "") + (proc.stderr or "")
+            cambios["reload_ok"] = (proc.returncode == 0)
+            log(f"[pg-acceso] pg_ctl reload exit={proc.returncode}",
+                "ok" if cambios["reload_ok"] else "warn")
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"pg_ctl reload: {str(e).split(chr(10))[0]}",
+                            "cambios": cambios}), 500
+    else:
+        cambios["reload_ok"] = True  # no había nada que recargar
+
+    return jsonify({"ok": cambios["reload_ok"],
+                    "listen_addresses_cambiado": cambios["listen_addresses_cambiado"],
+                    "hba_subnet_anadida": cambios["hba_subnet_anadida"],
+                    "reload_ok": cambios["reload_ok"],
+                    "version": paths["version"],
+                    "paths": {"hba": paths["hba_path"], "conf": paths["conf_path"]},
+                    "reload_output": reload_output[:500]})
 
 
 # ─────────────────────────────────────────────────────────────────────────────

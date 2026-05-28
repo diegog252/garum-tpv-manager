@@ -1,7 +1,51 @@
-GARUM TPV Manager v8.0
+GARUM TPV Manager v8.1
 =======================
 Herramienta interna para gestionar la integracion de TPVs GARUM.
 Diseno corporativo 4GL Solutions.
+
+
+NOVEDADES v8.1 — HARDENING DE PRODUCCION (4 mejoras detectadas en cliente)
+---------------------------------------------------------------------------
+Version de endurecimiento tras desplegar v8.0 en cliente real (V2 POLIGONO,
+PostgreSQL 9.5 con BD WIN1252). 4 cambios acumulados, todos detectados
+sobre fallos / incomodidades reales del campo:
+
+1) PASO PREVIO NUEVO "🔓 Acceso PostgreSQL en red"
+   Bloque colapsable al inicio de los modulos Reintegrar TPV y Nuevo TPV.
+   Pulsas un boton y la herramienta:
+     - Detecta automaticamente la version de PostgreSQL instalada
+       (busca en C:\Program Files\PostgreSQL\*\data\).
+     - Hace BACKUP atomico de pg_hba.conf y postgresql.conf antes de tocar.
+     - Asegura listen_addresses = '*' en postgresql.conf (idempotente).
+     - Añade "host all all 10.0.0.0/24 md5" en pg_hba.conf (idempotente).
+     - Recarga PostgreSQL sin reiniciar via pg_ctl reload.
+   Adios al error "no pg_hba.conf entry for host" que bloqueaba Reintegrar,
+   Mapa Series, Marcado global y deteccion de principal vivo en clientes
+   antiguos.
+
+2) ROBOCOPY CON FALLBACK (no requiere integracion4gl en ambos extremos)
+   El paso 6 de Reintegrar TPV (copia C:\GARUM del principal) ahora usa
+   una estrategia EN CASCADA:
+     - Primero intenta robocopy DIRECTO sin net use. Si el usuario
+       Windows del tecnico ya tiene acceso a \\IP\C$ via NTLM/dominio,
+       funciona sin necesidad de tener integracion4gl en el origen.
+     - Si robocopy directo falla, fallback con net use integracion4gl.
+     - Si ningun metodo funciona, mensaje claro al tecnico.
+   Antes el paso 6 fallaba si integracion4gl no existia en el origen,
+   aunque el tecnico tuviera acceso de admin.
+
+3) ENCODING TOLERANTE (WIN1252 / LATIN1 / SQL_ASCII)
+   Helper nuevo _conn_tolerante que detecta server_encoding y sincroniza
+   client_encoding antes de leer. Se acabaron los errores tipo
+   "'utf-8' codec can't decode byte 0xed in position 76". Aplicado en
+   las 5 conexiones cross-TPV (Mapa Series, Marcado global, Marcar red,
+   Deteccion de principal).
+
+4) PLAN VISUAL DE REINTEGRAR — IP REAL DE ORIGEN
+   Antes el paso 1 del plan visual mostraba siempre "10.0.0.101" hardcoded
+   aunque el tecnico estuviera reintegrando desde otra IP (10.0.0.102 si
+   TPV1 esta vacio). Ahora se sustituye dinamicamente con la IP de origen
+   real seleccionada.
 
 
 NOVEDADES v8.0 — AUTO-ACTUALIZACION DESDE LA NUBE 4GL
@@ -756,4 +800,4 @@ DOCUMENTACION COMPLETA
 ----------------------
 Ver README.md en esta misma carpeta.
 
-VERSION ACTUAL: v7.3
+VERSION ACTUAL: v8.1

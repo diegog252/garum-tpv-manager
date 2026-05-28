@@ -1,4 +1,4 @@
-# GARUM TPV Manager — v8.0
+# GARUM TPV Manager — v8.1
 ### Herramienta interna de gestión de integración de TPVs GARUM
 
 ---

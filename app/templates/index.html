@@ -870,7 +870,7 @@ html,body{
   <div class="sb-header">
     <div class="sb-logo">
       <div class="sb-logo-icon">G</div>
-      <span class="sb-logo-text">Mantenimiento<br>Garum <span id="sbVersion" style="font-size:10px;font-weight:400;opacity:.5;font-family:var(--mono)">v8.0</span></span>
+      <span class="sb-logo-text">Mantenimiento<br>Garum <span id="sbVersion" style="font-size:10px;font-weight:400;opacity:.5;font-family:var(--mono)">v8.1</span></span>
     </div>
     <button class="sb-toggle" id="sbToggle" onclick="toggleSidebar()" title="Colapsar menú">‹</button>
   </div>
@@ -1431,6 +1431,28 @@ html,body{
       </div>
     </details>
 
+    <!-- v8.1: PASO PREVIO 2 — Acceso PostgreSQL en red. Duplicado igual en
+         page-reintegrar (busca pg-acceso-block para localizar el gemelo).
+         Usa clases en vez de IDs para que la función JS controle ambas instancias. -->
+    <details class="inst-section pg-acceso-block" style="margin-bottom:16px">
+      <summary style="cursor:pointer;font-weight:600;color:var(--text);padding:4px 0;list-style:none;display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;font-weight:700;background:var(--amber-bg);color:var(--amber);padding:2px 8px;border-radius:6px;border:1px solid var(--amber-bd)">PASO PREVIO 2</span>
+        🔓 Acceso PostgreSQL en red
+        <span class="pg-acceso-estado" style="margin-left:8px;font-size:11px"></span>
+        <span style="margin-left:auto;font-size:12px;color:var(--text3);font-weight:400">clic para abrir/cerrar</span>
+      </summary>
+      <div style="padding-top:12px;border-top:1px solid var(--border);margin-top:8px">
+        <div style="font-size:13px;color:var(--text2);line-height:1.4;margin-bottom:12px">
+          Configura <code>pg_hba.conf</code> y <code>postgresql.conf</code> para permitir conexiones de la red GARUM (<code>10.0.0.0/24</code>) — idempotente, hace backup <code>.bak</code>.
+        </div>
+        <button class="btn btn-d btn-sm pg-acceso-btn" onclick="pgAccConfigurar()">
+          ▶ Configurar acceso de red
+        </button>
+        <span class="pg-acceso-hint" style="margin-left:12px;font-size:12px;color:var(--text2)"></span>
+        <div class="pg-acceso-resultado" style="display:none;margin-top:14px"></div>
+      </div>
+    </details>
+
     <!-- ── PASO 1: Credenciales ── -->
     <div id="instPaso1">
       <div class="inst-section">
@@ -1589,6 +1611,26 @@ html,body{
       </div>
     </details>
 
+    <!-- v8.1: PASO PREVIO 2 — Acceso PostgreSQL en red. Duplicado en page-instalacion. -->
+    <details class="inst-section pg-acceso-block" style="margin-bottom:16px">
+      <summary style="cursor:pointer;font-weight:600;color:var(--text);padding:4px 0;list-style:none;display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;font-weight:700;background:var(--amber-bg);color:var(--amber);padding:2px 8px;border-radius:6px;border:1px solid var(--amber-bd)">PASO PREVIO 2</span>
+        🔓 Acceso PostgreSQL en red
+        <span class="pg-acceso-estado" style="margin-left:8px;font-size:11px"></span>
+        <span style="margin-left:auto;font-size:12px;color:var(--text3);font-weight:400">clic para abrir/cerrar</span>
+      </summary>
+      <div style="padding-top:12px;border-top:1px solid var(--border);margin-top:8px">
+        <div style="font-size:13px;color:var(--text2);line-height:1.4;margin-bottom:12px">
+          Configura <code>pg_hba.conf</code> y <code>postgresql.conf</code> para permitir conexiones de la red GARUM (<code>10.0.0.0/24</code>) — idempotente, hace backup <code>.bak</code>.
+        </div>
+        <button class="btn btn-d btn-sm pg-acceso-btn" onclick="pgAccConfigurar()">
+          ▶ Configurar acceso de red
+        </button>
+        <span class="pg-acceso-hint" style="margin-left:12px;font-size:12px;color:var(--text2)"></span>
+        <div class="pg-acceso-resultado" style="display:none;margin-top:14px"></div>
+      </div>
+    </details>
+
     <!-- PASO PREVIO: crear el usuario Windows local "integracion4gl" que la app
          usa para autenticar el robocopy a \\IP\C$\GARUM. Debe existir en TODOS
          los TPVs (principal + destino) para que el paso 6 del job funcione. -->
@@ -1680,7 +1722,7 @@ html,body{
           <div class="step-card-ico"></div>
           <div class="step-card-body">
             <div class="step-card-tit">1. Backup de la BD del principal</div>
-            <div class="step-card-msg"><code>pg_dump</code> de <code>tpv</code> + <code>controlpista</code> desde <code>10.0.0.101</code></div>
+            <div class="step-card-msg"><code>pg_dump</code> de <code>tpv</code> + <code>controlpista</code> desde <code class="rei-ip-origen-txt">10.0.0.101</code></div>
           </div>
         </div>
         <div class="step-card pending" id="reiStep2">
@@ -4782,6 +4824,13 @@ function rei_validar(){
 
   var ok = okNum && okIp && okIpLocal;
   if(btn) btn.disabled = !ok;
+  // v8.1: actualizar IP origen dinámica en el plan visual (paso 1) — antes era
+  // 10.0.0.101 hardcoded incluso cuando reintegrabas TPV1 desde TPV2 vivo.
+  if(okIp){
+    document.querySelectorAll('.rei-ip-origen-txt').forEach(function(el){
+      el.textContent = ip;
+    });
+  }
   if(hint){
     if(ok){ hint.textContent='Listo para reintegrar TPV '+num+'.'; hint.style.color='var(--green)'; }
     else  { hint.textContent='Configura los campos para continuar.'; hint.style.color='var(--text2)'; }
@@ -7842,6 +7891,60 @@ function _serMapaRender(r){
   });
   tab.innerHTML = sections.join('');
 }
+
+// ============================================================================
+// v8.1 — PASO PREVIO 2: Acceso PostgreSQL en red.
+// Modifica pg_hba.conf + postgresql.conf + pg_ctl reload. Mismo patrón de
+// clases (no IDs) para que la misma función gestione ambas instancias.
+// ============================================================================
+
+async function pgAccConfigurar(){
+  var btns  = document.querySelectorAll('.pg-acceso-btn');
+  var hints = document.querySelectorAll('.pg-acceso-hint');
+  var ress  = document.querySelectorAll('.pg-acceso-resultado');
+  var ests  = document.querySelectorAll('.pg-acceso-estado');
+  btns.forEach(function(b){ b.disabled = true; });
+  hints.forEach(function(h){ h.textContent='⏳ Configurando…'; h.style.color='var(--text2)'; });
+  ress.forEach(function(r){ r.style.display='none'; r.innerHTML=''; });
+
+  var r;
+  try {
+    r = await post('/api/pg-acceso/configurar', {});
+  } catch(e){
+    hints.forEach(function(h){ h.textContent='✕ Error de red: '+String(e); h.style.color='var(--red-s)'; });
+    btns.forEach(function(b){ b.disabled=false; });
+    return;
+  }
+
+  if(r && r.ok){
+    var cambiosTxt = [];
+    if(r.listen_addresses_cambiado) cambiosTxt.push("listen_addresses = '*'");
+    if(r.hba_subnet_anadida) cambiosTxt.push("línea 10.0.0.0/24 añadida");
+    var msg = cambiosTxt.length ? cambiosTxt.join(' + ') : 'ya estaba configurado';
+    hints.forEach(function(h){ h.textContent='✓ Listo · '+msg; h.style.color='var(--green)'; });
+    ests.forEach(function(e){ e.innerHTML='<span style="color:var(--green)">✓ configurado</span>'; });
+    var html = '<div class="al al-s" style="display:flex;gap:8px;align-items:flex-start">'
+             + '<span class="ai">✓</span>'
+             + '<div><strong>PostgreSQL '+H(r.version||'?')+'</strong> configurado:'
+             + '<ul style="margin:6px 0 0 22px;line-height:1.55;font-size:12px">'
+             + '<li>'+H(r.paths.conf)+' → listen_addresses = '+(r.listen_addresses_cambiado?'<strong>cambiado a *</strong>':'ya estaba')+'</li>'
+             + '<li>'+H(r.paths.hba)+' → '+(r.hba_subnet_anadida?'<strong>10.0.0.0/24 añadida</strong>':'ya tenía 10.0.0.0/24')+'</li>'
+             + '<li>pg_ctl reload: '+(r.reload_ok?'<strong style="color:var(--green)">OK</strong>':'<strong style="color:var(--red-s)">fallo</strong>')+'</li>'
+             + '</ul></div></div>';
+    ress.forEach(function(rEl){ rEl.innerHTML=html; rEl.style.display=''; });
+  } else {
+    var err = (r && r.error) || 'Error desconocido';
+    hints.forEach(function(h){ h.textContent='✕ '+err; h.style.color='var(--red-s)'; });
+    ess = document.querySelectorAll('.pg-acceso-estado');
+    ess.forEach(function(e){ e.innerHTML='<span style="color:var(--red-s)">✕ fallo</span>'; });
+    ress.forEach(function(rEl){
+      rEl.innerHTML='<div class="al al-e"><span class="ai">✕</span>'+H(err)+'</div>';
+      rEl.style.display='';
+    });
+  }
+  btns.forEach(function(b){ b.disabled=false; });
+}
+
 
 // ============================================================================
 // PASO 0 — SETUP-GARUM: descarga del ZIP de instaladores desde la nube 4GL.
