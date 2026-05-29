@@ -910,9 +910,6 @@ html,body{
     <button class="sbn" id="nt-controlpista" onclick="irA('controlpista')">
       <span class="sbn-icon">🖧</span><span class="sbn-label">Control Pista</span>
     </button>
-    <button class="sbn" id="nt-art-carb" onclick="irA('art-carb')">
-      <span class="sbn-icon">⛽</span><span class="sbn-label">Combustibles</span>
-    </button>
     <button class="sbn" id="nt-series" onclick="irA('series')">
       <span class="sbn-icon">🧾</span><span class="sbn-label">Series</span>
     </button>
@@ -1166,7 +1163,7 @@ html,body{
         <!-- Tabs internas (Surtidores / Productos / EPT) - en la cabecera -->
         <div style="display:flex;gap:0;margin-top:6px">
           <button onclick="pistaTabSwitch(0)" id="pTab-0" style="background:none;border:none;border-bottom:3px solid var(--blue);padding:6px 12px;cursor:pointer;font-weight:700;font-size:13px;color:var(--blue)">⛽ Surtidores</button>
-          <button onclick="pistaTabSwitch(1)" id="pTab-1" style="background:none;border:none;border-bottom:3px solid transparent;padding:6px 12px;cursor:pointer;font-weight:600;font-size:13px;color:var(--text3)">📦 Productos</button>
+          <button onclick="pistaTabSwitch(1)" id="pTab-1" style="background:none;border:none;border-bottom:3px solid transparent;padding:6px 12px;cursor:pointer;font-weight:600;font-size:13px;color:var(--text3)">⛽ Combustibles</button>
           <button onclick="pistaTabSwitch(2)" id="pTab-2" style="background:none;border:none;border-bottom:3px solid transparent;padding:6px 12px;cursor:pointer;font-weight:600;font-size:13px;color:var(--text3)">💳 EPT</button>
         </div>
       </div>
@@ -1235,29 +1232,6 @@ html,body{
       <div id="artContent">
         <div class="al al-i"><span class="ai">ℹ</span>Selecciona un TPV y pulsa "Leer BD" para ver los artículos MPE.</div>
       </div>
-    </div>
-  </div>
-
-  <!-- ARTICULOS (carburantes — vista + impuestos editables) -->
-  <div class="page" id="page-art-carb">
-    <div class="ph">
-      <div class="phl">
-        <h2>⛽ Combustibles</h2>
-        <p>Artículos asignables a tanque · vista por TPV y edición de comisión/impuesto en red</p>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <select class="fs" id="selArtCarbTPV" style="width:auto;font-size:12px"></select>
-        <button class="btn btn-g btn-sm" id="btnLeerArtCarb" onclick="cargarArtCarb()">↻ Leer BD</button>
-      </div>
-    </div>
-    <div class="ctab-bar" style="padding:0 18px">
-      <button class="ctab-btn active" id="ctab-btn-artcarb-ver"
-              onclick="artCarbTab('ver')">📋 Ver artículos</button>
-      <button class="ctab-btn" id="ctab-btn-artcarb-imp"
-              onclick="artCarbTab('imp')">💶 Impuestos</button>
-    </div>
-    <div id="artCarbContent" style="padding:8px 18px 18px">
-      <div class="al al-i"><span class="ai">ℹ</span>Selecciona un TPV y pulsa "Leer BD".</div>
     </div>
   </div>
 
@@ -1468,31 +1442,34 @@ html,body{
         </div>
         <div style="max-width:420px">
           <div class="fg" style="margin-bottom:12px">
-            <label class="fl">IP origen — TPV1 (principal)</label>
+            <label class="fl">IP origen — TPV principal actual</label>
             <input class="fi" id="instIPOrigen" value="10.0.0.101" style="font-family:var(--mono-f)">
-            <div class="fh">IP del TPV principal del que se hará el backup</div>
+            <div class="fh">IP del TPV que ahora ejerce de principal (del que se hará el backup). No siempre es el TPV1.</div>
           </div>
           <div class="fg" style="margin-bottom:12px">
-            <label class="fl">IP de este equipo en la red (secundario)</label>
+            <label class="fl">IP del nuevo TPV secundario (este equipo)</label>
             <input class="fi" id="instIPNuevo" value="10.0.0.102" style="font-family:var(--mono-f)">
-            <div class="fh">IP real de red de este equipo — usada para la integración con el resto de TPVs</div>
+            <div class="fh">IP real de red de este equipo, el que se añade como nuevo TPV secundario — usada para la integración con el resto de TPVs</div>
           </div>
-          <div style="display:flex;gap:16px;margin-bottom:12px">
-            <div class="fg" style="flex:1">
-              <label class="fl">N.º de puesto (var_serieTpv)</label>
-              <input class="fi" id="instNumPuesto" type="number" min="1" max="9" value="2" style="max-width:80px">
-              <div class="fh">Número del TPV (TPV2=2, TPV3=3…) — sufijo de serie</div>
-            </div>
-            <div class="fg" style="flex:1">
-              <label class="fl">ID estación (var_idestacion)</label>
-              <input class="fi" id="instIdEstacion" type="number" min="1" max="9" value="2" style="max-width:80px">
-              <div class="fh">Id de la estación en Magón — cambiar solo si se indica expresamente</div>
+          <div style="border:1px solid var(--border);border-radius:var(--r);background:var(--bg2);padding:14px;margin-bottom:12px">
+            <div style="font-size:var(--t-xs);font-weight:700;color:var(--text2);margin-bottom:10px">🔢 Series nuevas de este TPV — configuración de las series del nuevo puesto</div>
+            <div style="display:flex;gap:16px">
+              <div class="fg" style="flex:1">
+                <label class="fl">N.º de puesto (var_serieTpv)</label>
+                <input class="fi" id="instNumPuesto" type="number" min="1" max="9" value="2" style="max-width:80px">
+                <div class="fh">Número del TPV (TPV2=2, TPV3=3…) — sufijo de serie</div>
+              </div>
+              <div class="fg" style="flex:1">
+                <label class="fl">ID estación (var_idestacion)</label>
+                <input class="fi" id="instIdEstacion" type="number" min="1" max="9" value="2" style="max-width:80px">
+                <div class="fh">Id de la estación en Magón — cambiar solo si se indica expresamente</div>
+              </div>
             </div>
           </div>
           <div class="fg" style="margin-bottom:12px">
             <label class="fl">ID TPV externo</label>
             <input class="fi" id="instIdTpvExterno" type="text" placeholder="ID que 4GL facilita al técnico" style="max-width:260px">
-            <div class="fh">Se escribe en tpv.id_tpv_externo — lo proporciona 4GL para este TPV</div>
+            <div class="fh">Se escribe en tpv.id_tpv_externo — lo proporciona 4GL para este TPV. Ese ID debe bajar en el XML del TPV en el backoffice de Magón.</div>
           </div>
           <div class="fg" style="margin-bottom:4px">
             <label class="fl">Contraseña de postgres</label>
@@ -1592,7 +1569,7 @@ html,body{
     <div class="ph">
       <div class="phl">
         <h2>🔄 Reintegrar TPV</h2>
-        <p>Clona la BD del TPV1 sobre este equipo — sin perder su identidad de TPV</p>
+        <p>Clona la BD del TPV que ahora es principal sobre este equipo — sin perder su identidad de TPV</p>
       </div>
       <button class="btn btn-g btn-sm" onclick="rei_inicializar()" title="Releer detección de red">↻ Re-detectar</button>
     </div>
@@ -1644,30 +1621,41 @@ html,body{
       <div id="reiStatus" style="margin-bottom:14px;font-size:var(--t-sm);color:var(--text2)">
         <em>Detectando IP local…</em>
       </div>
-      <div style="display:flex;gap:16px;flex-wrap:wrap;max-width:820px">
-        <div class="fg" style="flex:0 0 130px">
-          <label class="fl">TPV a reintegrar</label>
-          <input class="fi" id="reiNumTpv" type="number" min="1" max="9" value="2"
-                 oninput="rei_validar()" style="max-width:90px">
-          <div class="fh">Entre 1 y 9 (usa 1 si vas a reinstalar el TPV1 desde otro principal vivo)</div>
-        </div>
-        <div class="fg" style="flex:1;min-width:220px">
-          <label class="fl">IP del TPV a clonar</label>
-          <input class="fi" id="reiIpOrigen" type="text" value="10.0.0.101"
-                 oninput="rei_validar()"
-                 pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"
-                 style="font-family:var(--mono-f);max-width:200px">
-          <div class="fh">TPV vivo cuya BD se copiará a este equipo (suele ser el principal)</div>
-        </div>
-        <div class="fg" style="flex:1;min-width:220px">
-          <label class="fl">IP local de este equipo</label>
-          <input class="fi" id="reiIpLocal" type="text" value="10.0.0.102"
-                 oninput="rei_ipLocalManual=true; rei_validar()"
-                 pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"
-                 style="font-family:var(--mono-f);max-width:200px">
-          <div class="fh">IP con la que este TPV se identificará en la red tras el reintegrar</div>
-        </div>
-      </div>
+      <table style="border-collapse:collapse;max-width:760px;width:100%">
+        <colgroup>
+          <col style="width:140px">
+          <col style="width:260px">
+          <col style="width:260px">
+        </colgroup>
+        <tr>
+          <td style="padding:0 14px 4px 0;vertical-align:bottom"><label class="fl">TPV a reintegrar</label></td>
+          <td style="padding:0 14px 4px 0;vertical-align:bottom"><label class="fl">IP del TPV a clonar (ahora será principal)</label></td>
+          <td style="padding:0 0 4px 0;vertical-align:bottom"><label class="fl">IP local del equipo nuevo (a plataformar)</label></td>
+        </tr>
+        <tr>
+          <td style="padding:0 14px 0 0;vertical-align:top">
+            <input class="fi" id="reiNumTpv" type="number" min="1" max="9" value="2"
+                   oninput="rei_validar()" style="max-width:90px">
+          </td>
+          <td style="padding:0 14px 0 0;vertical-align:top">
+            <input class="fi" id="reiIpOrigen" type="text" value="10.0.0.101"
+                   oninput="rei_validar()"
+                   pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+                   style="font-family:var(--mono-f);max-width:200px">
+          </td>
+          <td style="padding:0;vertical-align:top">
+            <input class="fi" id="reiIpLocal" type="text" value="10.0.0.102"
+                   oninput="rei_ipLocalManual=true; rei_validar()"
+                   pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+                   style="font-family:var(--mono-f);max-width:200px">
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:4px 14px 0 0;vertical-align:top"><div class="fh">Entre 1 y 9 (usa 1 si vas a reinstalar el TPV1 desde otro principal vivo)</div></td>
+          <td style="padding:4px 14px 0 0;vertical-align:top"><div class="fh">TPV vivo cuya BD se copiará a este equipo (suele ser el principal)</div></td>
+          <td style="padding:4px 0 0 0;vertical-align:top"><div class="fh">IP con la que este TPV se identificará en la red tras el reintegrar</div></td>
+        </tr>
+      </table>
       <!-- Opciones avanzadas: copia de GARUM + edicion automatica de hibernate -->
       <div style="margin-top:14px;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);display:flex;flex-direction:column;gap:10px">
         <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:var(--t-sm)">
@@ -1719,7 +1707,7 @@ html,body{
           <div class="step-card-ico"></div>
           <div class="step-card-body">
             <div class="step-card-tit">0b. Usuario de sistema — crear si no existe</div>
-            <div class="step-card-msg">Crea el usuario admin local <code>integracion4gl</code> (solo si falta) que usa el robocopy del paso 6 para acceder a <code>\\IP\C$\GARUM</code>. Se ejecuta automáticamente al iniciar.</div>
+            <div class="step-card-msg">Crea el usuario admin local <code>integracion4gl</code> si no existe (debe coincidir con el del resto de TPVs). Luego el robocopy del paso 6 conecta por IP, ej. <code>\\10.0.0.101\C$\GARUM</code> (las unidades suelen estar ya mapeadas). Se ejecuta automáticamente al iniciar.</div>
           </div>
         </div>
         <div class="step-card pending" id="reiStep1">
@@ -2365,7 +2353,6 @@ function irA(id){
   if(id==='controlpista'){cargarControlPista();}
   if(id==='instalacion'){instInicializar();}
   if(id==='reintegrar'){rei_inicializar();}
-  if(id==='art-carb'){artCarbInicializar();}
   if(id==='tipoestacion'){tipoEstInicializar();}
   if(id==='actualizar'){act_inicializar();}
   if(id==='conftpv'){
@@ -6380,10 +6367,13 @@ async function cargarPista(){
   // Al refrescar cargarPista resetamos a la tab 0 (Surtidores) por defecto.
   pistaTabReset();
 
-  var html=demoTag+domsBar+globalBar;
+  var html=demoTag+domsBar;
 
   // ── Tab 0 (default): Surtidores + tanques huerfanos ─────────────
   html+='<div id="pTabBody-0" style="display:block">';
+
+  // Config global de surtidores: solo dentro de la tab Surtidores (no en Productos/EPT).
+  html+=globalBar;
 
   // ── Tarjetas de surtidores ───────────────────────────────────────
   html+='<div style="display:flex;flex-direction:column;gap:14px">';
@@ -6559,9 +6549,17 @@ async function cargarPista(){
 
   html+='</div>'; // fin pTabBody-0
 
-  // ── Tab 1: Productos (carga bajo demanda) ───────────────────────
+  // ── Tab 1: Combustibles (carga bajo demanda) ────────────────────
+  // Sub-tabs Ver artículos / Impuestos + contenedor #artCarbContent.
+  // Usa el selector TPV de pista (selPistaTPV); ver pistaTabSwitch/cargarArtCarb.
   html+='<div id="pTabBody-1" style="display:none">'
-    +'<div class="al al-i"><span class="ai">⏳</span>Pulsa la pestaña Productos para cargar...</div>'
+    +'<div class="ctab-bar" style="margin-bottom:10px">'
+    +  '<button class="ctab-btn active" id="ctab-btn-artcarb-ver" onclick="artCarbTab(\'ver\')">📋 Ver artículos</button>'
+    +  '<button class="ctab-btn" id="ctab-btn-artcarb-imp" onclick="artCarbTab(\'imp\')">💶 Impuestos</button>'
+    +'</div>'
+    +'<div id="artCarbContent">'
+    +  '<div class="al al-i"><span class="ai">⏳</span>Pulsa la pestaña Combustibles para cargar...</div>'
+    +'</div>'
     +'</div>';
 
   // ── Tab 2: EPT (carga bajo demanda) ─────────────────────────────
@@ -6600,7 +6598,7 @@ function pistaTabSwitch(idx){
       body.style.display=(i===idx?'block':'none');
     }
   }
-  if(idx===1) cargarPistaProductos();
+  if(idx===1){ artCarbState.tab='ver'; artCarbTab('ver', /*soloCambio=*/true); cargarArtCarb(); }
   if(idx===2) cargarPistaEpt();
 }
 
@@ -6635,19 +6633,7 @@ function _renderTablaGenerica(columnas, filas){
   return html;
 }
 
-async function cargarPistaProductos(){
-  var host=document.getElementById('selPistaTPV').value;
-  if(!host) return;
-  var c=document.getElementById('pTabBody-1');
-  c.innerHTML='<div class="al al-i pulsing"><span class="ai">⏳</span>Cargando productos (articulo asignable_tanque)...</div>';
-  var r;
-  try{ r=await get('/api/pista/productos?host_tpv='+encodeURIComponent(host)); }
-  catch(e){ c.innerHTML='<div class="al al-e"><span class="ai">✕</span>Error: '+H(e.message)+'</div>'; return; }
-  if(!r||!r.ok){ c.innerHTML='<div class="al al-e"><span class="ai">✕</span>'+H((r&&r.error)||'Error al leer BD')+'</div>'; return; }
-  var demoTag=r.demo?'<div class="al al-w" style="margin-bottom:10px"><span class="ai">⚠</span>Modo demo.</div>':'';
-  var subtitle='<div style="font-size:11px;color:var(--text3);margin-bottom:8px">📦 Tabla <span style="font-family:var(--mono)">articulo</span> filtrada por <span style="font-family:var(--mono)">asignable_tanque = TRUE</span></div>';
-  c.innerHTML=demoTag+subtitle+_renderTablaGenerica(r.columnas||[], r.filas||[]);
-}
+// (cargarPistaProductos eliminado: el tab 1 ahora es Combustibles — ver cargarArtCarb)
 
 async function cargarPistaEpt(){
   var host=document.getElementById('selPistaTPV').value;
@@ -6658,9 +6644,150 @@ async function cargarPistaEpt(){
   try{ r=await get('/api/pista/ept?host_tpv='+encodeURIComponent(host)); }
   catch(e){ c.innerHTML='<div class="al al-e"><span class="ai">✕</span>Error: '+H(e.message)+'</div>'; return; }
   if(!r||!r.ok){ c.innerHTML='<div class="al al-e"><span class="ai">✕</span>'+H((r&&r.error)||'Error al leer BD')+'</div>'; return; }
-  var demoTag=r.demo?'<div class="al al-w" style="margin-bottom:10px"><span class="ai">⚠</span>Modo demo.</div>':'';
-  var subtitle='<div style="font-size:11px;color:var(--text3);margin-bottom:8px">💳 Tabla <span style="font-family:var(--mono)">ept</span> — terminales de pago electrónicos instalados</div>';
-  c.innerHTML=demoTag+subtitle+_renderTablaGenerica(r.columnas||[], r.filas||[]);
+  // Opciones de las columnas FK (best-effort: si falla, se editan como texto/int).
+  var fk=null;
+  try{ fk=await get('/api/pista/ept/fk-opciones?host_tpv='+encodeURIComponent(host)); }catch(e){ fk=null; }
+  window._eptFk = (fk && fk.ok && fk.opciones) ? fk.opciones : {};
+  var demoTag=r.demo?'<div class="al al-w" style="margin-bottom:10px"><span class="ai">⚠</span>Modo demo — edición deshabilitada.</div>':'';
+  var aviso=r.demo?'':'<div class="al al-w" style="margin-bottom:12px"><span class="ai">⚠</span><div>Cada cambio se aplica a <strong>todos los TPVs accesibles</strong> (la fila se localiza por <code>id_ept</code>). <code>id_ept</code> no es editable. Las columnas relacionadas (FK) se editan con desplegable.</div></div>';
+  var subtitle='<div style="font-size:11px;color:var(--text3);margin-bottom:8px">💳 Tabla <span style="font-family:var(--mono)">ept</span> — terminales de pago electrónicos · clic en un campo para editar</div>';
+  c.innerHTML=demoTag+subtitle+aviso+_renderTablaEptEditable(r.columnas||[], r.filas||[], !r.demo);
+}
+
+// Columnas editables de ept y su tipo (id_ept = PK, NO editable).
+// DEBE coincidir con _EPT_COLS_EDITABLES del backend (server.py).
+// Las columnas que el backend detecte como FK se editan con desplegable
+// (window._eptFk), independientemente del tipo declarado aquí.
+var EPT_COLS_EDIT = { codigo:'text', codigo_concentrador:'int', id_forma_pago:'int', id_personal:'int', id_ept_externo:'int', nombre:'text' };
+
+// Etiqueta legible de un valor FK (busca el id en las opciones de esa columna).
+function _eptFkLabel(columna, val){
+  var opts=(window._eptFk||{})[columna];
+  if(!Array.isArray(opts)) return null;
+  for(var i=0;i<opts.length;i++){ if(opts[i].id===val) return opts[i].label; }
+  return null;
+}
+
+function _renderTablaEptEditable(columnas, filas, editable){
+  if(!filas.length) return '<div class="al al-i"><span class="ai">ℹ</span>Sin terminales EPT.</div>';
+  var th='padding:7px 10px;text-align:left;border-bottom:1px solid var(--border);font-family:var(--mono);font-weight:700;white-space:nowrap;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--text3);background:var(--bg2)';
+  var td='padding:7px 10px;font-size:12px;color:var(--text);border-bottom:1px solid var(--border2);white-space:nowrap';
+  var html='<div style="overflow-x:auto;border:1px solid var(--border);border-radius:var(--rl);background:var(--surface)">';
+  html+='<table style="width:100%;border-collapse:collapse">';
+  html+='<thead><tr>';
+  columnas.forEach(function(col){ html+='<th style="'+th+'">'+H(col)+'</th>'; });
+  html+='</tr></thead><tbody>';
+  filas.forEach(function(fila){
+    var idEpt=fila.id_ept;
+    html+='<tr>';
+    columnas.forEach(function(col){
+      var val=fila[col];
+      var disp=(val===null||val===undefined)?'—':String(val);
+      var fkOpts=(window._eptFk||{})[col];
+      var esFk=Array.isArray(fkOpts)&&fkOpts.length;
+      if(editable && col!=='id_ept' && idEpt!=null && esFk){
+        // Celda FK: desplegable. Muestra etiqueta + #id.
+        var lab=_eptFkLabel(col, val);
+        var valArg=(val==null?'null':val);
+        var contenido=(val==null)
+          ? '<span style="color:var(--text3)">— elegir —</span>'
+          : (lab!=null
+              ? '<span>'+H(lab)+'</span> <span style="opacity:.5;font-family:var(--mono);font-size:10px">#'+H(String(val))+'</span>'
+              : '<span style="font-family:var(--mono)">#'+H(String(val))+'</span> <span style="color:var(--amber);font-size:10px">(id sin match)</span>');
+        html+='<td style="'+td+'">'
+            +'<span onclick="eptEditarCampo(this,'+idEpt+',\''+col+'\','+valArg+',\'fk\')" '
+            +'title="Editar (desplegable) — se aplica a todos los TPVs" '
+            +'style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;border:1px dashed var(--blue);border-radius:5px;padding:2px 8px;background:#fff">'
+            +contenido+' <span style="opacity:.45;font-size:10px">▾</span></span>'
+          +'</td>';
+      } else if(editable && col!=='id_ept' && EPT_COLS_EDIT[col] && idEpt!=null){
+        var tipo=EPT_COLS_EDIT[col];
+        var valArg2=(tipo==='int')
+          ? (val==null?'null':val)
+          : ('\''+String(val==null?'':val).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;')+'\'');
+        html+='<td style="'+td+'">'
+            +'<span onclick="eptEditarCampo(this,'+idEpt+',\''+col+'\','+valArg2+',\''+tipo+'\')" '
+            +'title="Editar — se aplica a todos los TPVs" '
+            +'style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;border:1px dashed var(--border2);border-radius:5px;padding:2px 8px;background:#fff">'
+            +(val==null?'<span style="color:var(--text3)">—</span>':'<span style="font-family:var(--mono)">'+H(disp)+'</span>')
+            +'<span style="opacity:.45;font-size:10px">✏</span></span>'
+          +'</td>';
+      } else if(col==='id_ept'){
+        html+='<td style="'+td+'"><strong style="font-family:var(--mono)">'+H(disp)+'</strong></td>';
+      } else {
+        html+='<td style="'+td+'">'+(val==null?'<span style="color:var(--text3)">—</span>':H(disp))+'</td>';
+      }
+    });
+    html+='</tr>';
+  });
+  html+='</tbody></table></div>';
+  return html;
+}
+
+function eptEditarCampo(el, idEpt, columna, valorActual, tipo){
+  var parent=el.parentElement;
+  var wrap=document.createElement('span');
+  wrap.style.cssText='display:inline-flex;align-items:center;gap:4px';
+  var control;
+  if(tipo==='fk'){
+    control=document.createElement('select');
+    control.style.cssText='border:1px solid var(--border);border-radius:4px;padding:2px 5px;font-size:12px;outline:none;background:#fff;max-width:240px';
+    var opts=(window._eptFk||{})[columna]||[];
+    opts.forEach(function(o){
+      var op=document.createElement('option');
+      op.value=String(o.id);
+      op.textContent=o.label+'  (#'+o.id+')';
+      if(valorActual!=null && String(o.id)===String(valorActual)) op.selected=true;
+      control.appendChild(op);
+    });
+  } else if(tipo==='int'){
+    control=document.createElement('input');
+    control.type='number';
+    control.value=(valorActual!=null?valorActual:'');
+    control.style.cssText='width:90px;border:1px solid var(--border);border-radius:4px;padding:2px 5px;font-size:12px;outline:none;font-family:var(--mono)';
+  } else {
+    control=document.createElement('input');
+    control.type='text';
+    control.value=(valorActual!=null?String(valorActual):'');
+    control.style.cssText='width:150px;border:1px solid var(--border);border-radius:4px;padding:2px 5px;font-size:12px;outline:none';
+  }
+  var btnOk=document.createElement('button');
+  btnOk.textContent='✓';
+  btnOk.style.cssText='background:var(--blue);color:#fff;border:none;padding:2px 7px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700';
+  var btnX=document.createElement('button');
+  btnX.textContent='✕';
+  btnX.style.cssText='background:none;border:none;color:var(--text3);padding:2px 4px;cursor:pointer;font-size:11px';
+  wrap.appendChild(control); wrap.appendChild(btnOk); wrap.appendChild(btnX);
+  parent.replaceChild(wrap, el);
+  control.focus(); if(control.select) control.select();
+  var restore=function(){ parent.replaceChild(el, wrap); };
+  btnX.onclick=restore;
+  control.onkeydown=function(e){ if(e.key==='Escape') restore(); if(e.key==='Enter' && tipo!=='fk') btnOk.click(); };
+  btnOk.onclick=async function(){
+    var nuevo, dispNuevo;
+    if(tipo==='fk'){
+      if(control.value===''){ restore(); return; }
+      nuevo=parseInt(control.value,10);
+      if(isNaN(nuevo)){ restore(); return; }
+      var lab=_eptFkLabel(columna, nuevo);
+      dispNuevo=(lab!=null?(lab+' (#'+nuevo+')'):('#'+nuevo));
+    } else if(tipo==='int'){
+      if(String(control.value).trim()===''){ nuevo=null; }
+      else { nuevo=parseInt(control.value,10); if(isNaN(nuevo)){ alert('Debe ser un número entero'); return; } }
+      dispNuevo=(nuevo===null?'(vacío)':nuevo);
+    } else {
+      nuevo=String(control.value||'').trim();
+      dispNuevo=(nuevo===''?'(vacío)':nuevo);
+    }
+    if(!confirm('Vas a aplicar '+columna+' = '+dispNuevo+' al EPT id_ept='+idEpt+'\n\nEsto modifica esa fila en TODOS los TPVs accesibles.\n\n¿Continuar?')){
+      return;
+    }
+    btnOk.disabled=true; btnOk.textContent='…';
+    await aplicarRedYMostrar('/api/pista/ept/red',
+      { id_ept:idEpt, columna:columna, valor:nuevo },
+      'Aplicando '+columna+' = '+dispNuevo+' al EPT id_ept='+idEpt+' en todos los TPVs');
+    cargarPistaEpt();
+  };
 }
 
 // ── MEDIOS DE PAGO: sub-tabs (mpe + articulo_mpe) ─────────────────
@@ -6821,38 +6948,14 @@ function _renderArticulos(lista){
 // =====================================================================
 var artCarbState = { tab: 'ver', articulos: [], tipos: [] };
 
-function artCarbInicializar(){
-  // Poblar selector de TPV. Patron identico al de Artículos MPE.
-  var sel = document.getElementById('selArtCarbTPV');
-  if(sel){
-    var saved = sel.value;
-    var lista = tpvs.filter(function(t){ return t.accesible; });
-    if(!lista.length) lista = tpvs;
-    if(lista.length){
-      sel.innerHTML = lista.map(function(t){
-        return '<option value="'+H(t.ip)+'">'+H(t.nombre)+' — '+H(t.ip)+'</option>';
-      }).join('');
-    } else {
-      var selHost = document.getElementById('cHostSel');
-      var ipSesion = '';
-      if(selHost){
-        ipSesion = selHost.value==='__custom__'
-          ? (document.getElementById('cHostCustom')||{}).value || ''
-          : selHost.value;
-      }
-      if(ipSesion && ipSesion!=='__custom__'){
-        sel.innerHTML = '<option value="'+H(ipSesion)+'">BD conectada — '+H(ipSesion)+'</option>';
-      }
-    }
-    if(saved && sel.querySelector('option[value="'+saved+'"]')) sel.value = saved;
-    if(!sel._bound){
-      sel.addEventListener('change', function(){ cargarArtCarb(); });
-      sel._bound = true;
-    }
-  }
-  artCarbState.tab = 'ver';
-  artCarbTab('ver', /*solo_cambio=*/true);
-  cargarArtCarb();
+// Combustibles ya no es página de sidebar: vive como tab "⛽ Combustibles"
+// dentro de Control Pista. Se inicializa desde pistaTabSwitch(1), que fija
+// la sub-tab 'ver' y llama a cargarArtCarb() (selector TPV = selPistaTPV).
+
+// Nombre legible del artículo a partir de su codigo (para mensajes en pantalla).
+function _artCarbNombre(codigo){
+  var a = (artCarbState.articulos||[]).find(function(x){ return x.codigo===codigo; });
+  return (a && a.nombre) ? a.nombre : codigo;
 }
 
 function artCarbTab(tab, soloCambio){
@@ -6865,8 +6968,10 @@ function artCarbTab(tab, soloCambio){
 }
 
 async function cargarArtCarb(){
-  var sel = document.getElementById('selArtCarbTPV');
+  // Combustibles vive como tab de pista: usa el selector TPV de pista.
+  var sel = document.getElementById('selPistaTPV');
   var c = document.getElementById('artCarbContent');
+  if(!c) return; // tab no renderizada todavía
   if(!sel || !sel.value){
     c.innerHTML = '<div class="al al-i"><span class="ai">ℹ</span>Selecciona un TPV para ver los artículos.</div>';
     return;
@@ -6980,7 +7085,7 @@ async function artCarbToggleComision(codigo, nuevoValor){
   var b = !!nuevoValor;
   await aplicarRedYMostrar('/api/articulos/comision/red',
     { codigo: codigo, valor: b },
-    'Aplicando '+codigo+' → comisión = '+(b?'TRUE':'FALSE')+' en todos los TPVs');
+    'Aplicando '+_artCarbNombre(codigo)+' → comisión = '+(b?'TRUE':'FALSE')+' en todos los TPVs');
   // Recargar la lista del TPV seleccionado para reflejar el nuevo estado
   cargarArtCarb();
 }
@@ -7081,7 +7186,7 @@ async function artCarbSetImpuesto(codigo, idImp){
   // Reusa el patron de modal ovRed que ya usan otros modulos /red
   await aplicarRedYMostrar('/api/articulos/tipo_impuesto/red',
     { codigo: codigo, id_impuesto: idImp },
-    'Aplicando '+codigo+' → id_impuesto = '+idImp+' en todos los TPVs');
+    'Aplicando '+_artCarbNombre(codigo)+' → impuesto en todos los TPVs');
   // Recargar para reflejar el cambio en pantalla del TPV seleccionado
   cargarArtCarb();
 }
@@ -8026,7 +8131,7 @@ async function pgAccEjecutarEnCard(cardEl){
 // robocopy podría fallar, pero es opcional).
 // ============================================================================
 
-var USYS_CARD_MSG_DEFECTO = 'Crea el usuario admin local <code>integracion4gl</code> (solo si falta) que usa el robocopy del paso 6 para acceder a <code>\\\\IP\\C$\\GARUM</code>. Se ejecuta automáticamente al iniciar.';
+var USYS_CARD_MSG_DEFECTO = 'Crea el usuario admin local <code>integracion4gl</code> si no existe (debe coincidir con el del resto de TPVs). Luego el robocopy del paso 6 conecta por IP, ej. <code>\\\\10.0.0.101\\C$\\GARUM</code> (las unidades suelen estar ya mapeadas). Se ejecuta automáticamente al iniciar.';
 
 function usysResetCard(cardEl){
   if(!cardEl) return;
@@ -8400,7 +8505,7 @@ async function act_aplicar(){
   var logEl= document.getElementById('actLog');
   if(btn)  btn.disabled = true;
   if(btnR) btnR.disabled = true;
-  if(hint){ hint.textContent = '⏳ Descargando ZIP (~40 MB)…'; hint.style.color = 'var(--text2)'; }
+  if(hint){ hint.textContent = '⏳ Descargando actualización (~30 MB)…'; hint.style.color = 'var(--text2)'; }
   if(logEl){ logEl.style.display = ''; logEl.textContent = '⏳ Descargando ZIP de distribución desde la nube 4GL…\n'; }
   var r;
   try {
@@ -8419,14 +8524,14 @@ async function act_aplicar(){
     if(btnR) btnR.disabled = false;
     return;
   }
-  // OK: setup lanzado, app se cerrará en 5s.
+  // OK: actualizador lanzado (elevado), app se cerrará en 5s y se reabrirá sola.
   var mb = (r.size_mb||0).toFixed(1);
   if(logEl){
-    logEl.textContent += '✓ ZIP descargado ('+mb+' MB)\n';
-    logEl.textContent += '✓ Descomprimido en C:\\GARUMTOOLS\\Update\\\n';
-    logEl.textContent += '✓ Setup lanzado: '+(r.setup_path||'?')+'\n';
-    logEl.textContent += '\n⏳ La app se cerrará en '+(r.segundos_para_cerrar||5)+' s para liberar los ficheros al instalador.\n';
-    logEl.textContent += '   Vuelve a abrirla desde el acceso directo del escritorio cuando el setup termine.\n';
+    logEl.textContent += '✓ Actualización descargada ('+mb+' MB)\n';
+    logEl.textContent += '✓ Descomprimida en C:\\GARUMTOOLS\\Update\\\n';
+    logEl.textContent += '✓ Actualizador lanzado — acepta el aviso de Windows (UAC)\n';
+    logEl.textContent += '\n⏳ La app se cerrará en '+(r.segundos_para_cerrar||5)+' s y se reabrirá sola ya actualizada.\n';
+    logEl.textContent += '   Si no se reabre sola, ábrela desde el acceso directo del escritorio.\n';
   }
   // Countdown visible en el botón
   var seg = r.segundos_para_cerrar || 5;
@@ -8435,7 +8540,7 @@ async function act_aplicar(){
       if(hint){ hint.textContent = 'Cerrando aplicación…'; hint.style.color = 'var(--amber)'; }
       return;
     }
-    if(hint){ hint.textContent = '⏳ La app se cerrará en '+seg+' s · ejecutándose el instalador'; hint.style.color = 'var(--amber)'; }
+    if(hint){ hint.textContent = '⏳ La app se cerrará en '+seg+' s · aplicando la actualización'; hint.style.color = 'var(--amber)'; }
     seg--;
     setTimeout(tick, 1000);
   };

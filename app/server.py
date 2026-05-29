@@ -1,6 +1,38 @@
 """
-GARUM TPV Manager - Backend v8.3
+GARUM TPV Manager - Backend v8.4
 ==================================
+v8.4:   AUTO-ACTUALIZACION IN-PLACE (SIN .EXE NSIS) + EPT EDITABLE + COMBUSTIBLES
+        COMO PESTAÑA (sobre v8.3, 29/05/2026):
+
+        1. La auto-actualizacion ya NO usa el instalador .exe de NSIS (que, al
+           no estar firmado, dispara alertas de antivirus/SmartScreen). El
+           modulo "🔄 Actualizar" ahora descarga el pack, extrae el ZIP
+           instalador interno y copia app\\ sobre la instalacion relanzando
+           python.exe ELEVADO (un solo UAC; solo python.exe, en el que el AV
+           ya confia). Ver api_actualizar_aplicar + _aplicar_autoupdate +
+           el manejo de --autoupdate-target en __main__. La distribucion ya
+           NO incluye el .exe: se instala por ZIP instalador o portable.
+
+        2. "Combustibles" deja de ser pagina del menu lateral y pasa a ser una
+           pestaña dentro de Control Pista (sustituye a la antigua "Productos").
+           Se elimina del sidebar; usa el selector de TPV de pista.
+
+        3. EPT (Control Pista) pasa a ser EDITABLE. Cada cambio se aplica a
+           TODOS los TPVs accesibles, localizando la fila por id_ept. Las
+           columnas FK se editan con desplegable, auto-descubiertas via
+           information_schema. Endpoints nuevos: POST /api/pista/ept/red y
+           GET /api/pista/ept/fk-opciones.
+
+        4. Los mensajes de Combustibles muestran el NOMBRE del articulo en vez
+           del codigo. Varias mejoras de textos/UX en Reintegrar y Nuevo TPV.
+
+        APP_VERSION="8.4" — propaga al sidebar y al check de actualizaciones.
+
+        ⚠ DESPLIEGUE: los TPV en v8.1/v8.2 traen el launcher de Actualizar roto
+        (subprocess no puede lanzar el .exe elevado -> WinError 740), asi que
+        v8.4 hay que instalarla MANUALMENTE una vez en cada TPV (ZIP o
+        portable). Desde v8.4, la auto-actualizacion in-place ya funciona.
+
 v8.3:   FIX AUTO-ACTUALIZACION — NOMBRE DEL PACK POR VERSION (sobre v8.2, 29/05/2026):
 
         1. El modulo "🔄 Actualizar" descargaba el pack de distribucion por un
@@ -4149,6 +4181,205 @@ def api_get_pista_ept():
             except Exception: pass
 
 
+# Columnas editables de `ept` y su tipo. id_ept (PK) NO es editable.
+# Esta whitelist es la unica fuente de nombres de columna que se interpolan
+# en el SQL (ver abajo): por eso interpolar el nombre es SEGURO (no hay
+# entrada libre del usuario en el identificador). El VALOR siempre va
+# parametrizado (%s).
+_EPT_COLS_EDITABLES = {
+    "codigo": "text",
+    "codigo_concentrador": "int",
+    "id_forma_pago": "int",
+    "id_personal": "int",
+    "id_ept_externo": "int",
+    "nombre": "text",
+}
+
+
+@app.route("/api/pista/ept/red", methods=["POST"])
+@csrf
+@need_conn
+def api_set_ept_red():
+    """Actualiza UNA columna de UNA fila `ept` (por id_ept) en TODOS los TPVs
+    accesibles. Body: {id_ept:int, columna:str, valor:any}.
+    La columna se valida contra _EPT_COLS_EDITABLES (whitelist) antes de
+    interpolarla; el valor va parametrizado. Si un TPV no tiene esa id_ept,
+    ese TPV reporta 'no encontrado' (rowcount 0) y se hace rollback en el."""
+    data = request.json or {}
+    try:
+        id_ept = int(data.get("id_ept"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "id_ept requerido (entero)"}), 400
+
+    columna = str(data.get("columna", "")).strip()
+    if columna not in _EPT_COLS_EDITABLES:
+        return jsonify({"ok": False, "error": "columna no editable"}), 400
+    tipo = _EPT_COLS_EDITABLES[columna]
+
+    valor = data.get("valor")
+    if tipo == "int":
+        if valor is None or valor == "":
+            valor = None
+        else:
+            try:
+                valor = int(valor)
+            except (TypeError, ValueError):
+                return jsonify({"ok": False, "error": f"{columna} debe ser un entero"}), 400
+    else:  # text
+        if valor is None:
+            valor = None
+        else:
+            valor = str(valor)
+            if len(valor) > 255:
+                return jsonify({"ok": False, "error": "texto demasiado largo (max 255)"}), 400
+
+    # columna ya validada contra la whitelist -> interpolacion segura.
+    sql = f"UPDATE ept SET {columna} = %s WHERE id_ept = %s"
+
+    def apply_one(tpv):
+        host = tpv["ip"]
+        nombre = tpv.get("nombre", host)
+        c = None
+        try:
+            c = conn_tpv(host)
+            c.autocommit = False
+            cur = c.cursor()
+            cur.execute(sql, (valor, id_ept))
+            n = cur.rowcount
+            if n == 0:
+                c.rollback()
+                return {"host": host, "nombre": nombre, "ok": False,
+                        "error": f"ept con id_ept={id_ept} no encontrado"}
+            c.commit()
+            return {"host": host, "nombre": nombre, "ok": True, "filas": n}
+        except Exception as e:
+            if c:
+                try: c.rollback()
+                except Exception: pass
+            msg = str(e).split("\n")[0]
+            log(f"WARN ept_red {host} id_ept={id_ept} {columna}: {msg}", "warn")
+            return {"host": host, "nombre": nombre, "ok": False,
+                    "error": "No se pudo actualizar la BD"}
+        finally:
+            if c:
+                try: c.close()
+                except Exception: pass
+
+    res = _aplicar_red(apply_one)
+    log(f"[RED] ept(id_ept={id_ept}).{columna}={valor}: "
+        f"ok={res['ok_count']}/{res['total']}", "ok")
+    return jsonify(res)
+
+
+def _ident_sql_seguro(s):
+    """True si s es un identificador SQL simple (letras/digitos/_, no empieza
+    por digito). Se usa para validar nombres de tabla/columna que vienen del
+    CATALOGO (information_schema), antes de interpolarlos. Defensa en
+    profundidad: aunque el origen es de confianza, no interpolamos nada que no
+    case este patron."""
+    return bool(s) and (s[0].isalpha() or s[0] == "_") and all(
+        ch.isalnum() or ch == "_" for ch in s)
+
+
+@app.route("/api/pista/ept/fk-opciones")
+@need_conn
+def api_ept_fk_opciones():
+    """Devuelve, para cada columna FK *editable* de `ept`, la lista de opciones
+    {id, label} de su tabla relacionada — para pintar desplegables en el
+    frontend y asociar el valor correcto en vez de teclear un id a ciegas.
+
+    Auto-descubre las FK via information_schema (no hardcodea nombres de
+    tabla). El label se elige de la primera columna de texto de la tabla
+    referenciada (nombre/descripcion/...). Identificadores validados con
+    _ident_sql_seguro antes de interpolar; nada viene del usuario."""
+    host_raw = request.args.get("host_tpv", sess.get("host", ""))
+    try:
+        host = val_host(host_raw)
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+    if sess.get("demo"):
+        return jsonify({"ok": True, "demo": True, "opciones": {
+            "id_forma_pago": [{"id": 13, "label": "Tarjeta"}, {"id": 16, "label": "Efectivo"}],
+            "id_personal":   [{"id": 14, "label": "Cajero 1"}, {"id": 32, "label": "Cajero 2"}],
+        }})
+
+    c = None
+    try:
+        c = conn_tpv(host)
+        cur = c.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        # 1) FKs declaradas sobre la tabla ept: columna local -> (tabla, col) ref
+        cur.execute("""
+            SELECT kcu.column_name AS col,
+                   ccu.table_name  AS ref_table,
+                   ccu.column_name AS ref_col
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+            JOIN information_schema.constraint_column_usage ccu
+              ON tc.constraint_name = ccu.constraint_name
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_name = 'ept'
+        """)
+        fks = cur.fetchall()
+
+        opciones = {}
+        detectadas = []
+        _label_prefs = ("nombre", "descripcion", "denominacion", "nombre_corto", "desc")
+        for fk in fks:
+            col = fk["col"]
+            ref_table = fk["ref_table"]
+            ref_col = fk["ref_col"]
+            detectadas.append({"col": col, "ref_table": ref_table})
+            # solo columnas que dejamos editar
+            if col not in _EPT_COLS_EDITABLES:
+                continue
+            if not (_ident_sql_seguro(ref_table) and _ident_sql_seguro(ref_col)):
+                continue
+            # 2) elegir columna de etiqueta (primera de texto en la tabla ref)
+            cur.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = %s
+                  AND data_type IN ('character varying','text','character','name')
+                ORDER BY ordinal_position
+            """, (ref_table,))
+            textcols = [r["column_name"] for r in cur.fetchall()]
+            label_col = None
+            for pref in _label_prefs:
+                if pref in textcols:
+                    label_col = pref
+                    break
+            if not label_col and textcols:
+                label_col = textcols[0]
+            if label_col and not _ident_sql_seguro(label_col):
+                label_col = None
+            # 3) leer opciones (id + label). Identificadores ya validados.
+            if label_col:
+                q = (f'SELECT {ref_col} AS id, {label_col} AS label '
+                     f'FROM {ref_table} ORDER BY 2 LIMIT 1000')
+            else:
+                q = (f'SELECT {ref_col} AS id, {ref_col}::text AS label '
+                     f'FROM {ref_table} ORDER BY 1 LIMIT 1000')
+            try:
+                cur.execute(q)
+                opciones[col] = [{"id": r["id"], "label": str(r["label"])}
+                                 for r in cur.fetchall()]
+            except Exception as e:
+                msg = str(e).split("\n")[0]
+                log(f"WARN ept_fk_opciones {host} {col}->{ref_table}: {msg}", "warn")
+
+        return jsonify({"ok": True, "demo": False,
+                        "opciones": opciones, "fks_detectadas": detectadas})
+    except Exception as e:
+        msg = str(e).split("\n")[0]
+        log(f"WARN api_ept_fk_opciones {host}: {msg}", "warn")
+        return jsonify({"ok": False, "error": "No se pudieron leer las opciones FK"}), 500
+    finally:
+        if c:
+            try: c.close()
+            except Exception: pass
+
+
 @app.route("/api/pista/productos")
 @need_conn
 def api_get_pista_productos():
@@ -7971,7 +8202,7 @@ def _crear_usuario_windows_local():
 # solo este valor (+ los .bat / NSI / docs) en el siguiente release.
 # ─────────────────────────────────────────────────────────────────────────────
 
-APP_VERSION = "8.3"
+APP_VERSION = "8.4"
 APP_NAME    = "GARUM TPV Manager"
 _USER_AGENT = f"GARUM-TPV-Manager/{APP_VERSION}"
 
@@ -8508,12 +8739,15 @@ def api_actualizar_check():
 @csrf
 @need_conn
 def api_actualizar_aplicar():
-    """Descarga el ZIP de distribucion, lo descomprime en C:\\GARUMTOOLS\\Update\\,
-    localiza el Setup-vX.exe interno y lo lanza como proceso DESACOPLADO. Tras
-    5 s la app se cierra via os._exit(0) para que el setup pueda sobrescribir
-    los ficheros sin tener Flask bloqueandolos.
+    """Descarga el pack de distribucion, lo descomprime en C:\\GARUMTOOLS\\Update\\,
+    extrae el ZIP instalador interno y aplica una actualizacion "in-place":
+    relanza el propio python embebido ELEVADO (UAC) con --autoupdate-target, que
+    copia la carpeta app\\ sobre la instalacion y rearranca la app ya actualizada.
+    v8.4: se elimino el Setup.exe NSIS (sin firma -> alertas de antivirus), por
+    eso ya no se lanza ningun instalador externo. Tras 5 s la app se cierra via
+    os._exit(0) para liberar el puerto 5050 y los ficheros al actualizador.
 
-    Returns {ok, version_a_instalar, setup_path, segundos_para_cerrar}
+    Returns {ok, version_a_instalar, setup_path, metodo, segundos_para_cerrar}
     """
     global _actualizando_en_curso
     if sess.get("demo"):
@@ -8589,47 +8823,112 @@ def api_actualizar_aplicar():
             zf.extractall(_UPDATE_DIR)
         log(f"[actualizar/aplicar] OK descomprimido en {_UPDATE_DIR}", "ok")
 
-        # ── Localizar Setup-vX.exe dentro del ZIP descomprimido ───────
-        candidatos = glob.glob(os.path.join(
-            _UPDATE_DIR, "**", "GARUM_TPV_Manager_Setup_v*.exe"), recursive=True)
-        if not candidatos:
+        # ── Localizar el ZIP instalador dentro del pack descomprimido ──
+        # v8.4: ya NO usamos el Setup.exe NSIS (sin firma -> alertas de
+        # SmartScreen/antivirus). El pack de distribucion lleva dentro
+        # garum_tpv_manager_v{ver}.zip, cuya carpeta app\ es el codigo nuevo.
+        # Lo extraemos y aplicamos una actualizacion "in-place" copiando ese
+        # app\ sobre la instalacion (ver _aplicar_autoupdate).
+        cand_inst = glob.glob(os.path.join(
+            _UPDATE_DIR, "**", "garum_tpv_manager_v*.zip"), recursive=True)
+        if not cand_inst:
             with _actualizando_lock:
                 _actualizando_en_curso = False
             return jsonify({"ok": False,
-                            "error": ("ZIP descargado pero no se encontro "
-                                      "GARUM_TPV_Manager_Setup_v*.exe dentro. "
-                                      "Descomprime manualmente y ejecutalo.")}), 500
-        setup_exe = candidatos[0]
-        log(f"[actualizar/aplicar] Setup localizado: {setup_exe}", "info")
+                            "error": ("Pack descargado pero no se encontro el "
+                                      "ZIP instalador (garum_tpv_manager_v*.zip) "
+                                      "dentro. Instala manualmente.")}), 500
+        inst_zip = cand_inst[0]
+        log(f"[actualizar/aplicar] ZIP instalador localizado: {inst_zip}", "info")
 
-        # ── Lanzar setup como proceso desacoplado ──────────────────────
-        DETACHED_PROCESS = 0x00000008
-        CREATE_NEW_PROCESS_GROUP = 0x00000200
-        flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
-        try:
-            subprocess.Popen([setup_exe], creationflags=flags, close_fds=True)
-            log(f"[actualizar/aplicar] Setup lanzado en proceso desacoplado",
-                "ok")
-        except Exception as e_pop:
+        # Extraer el ZIP instalador a Update\nuevo\ (guarda anti zip-slip).
+        nuevo_dir = os.path.join(_UPDATE_DIR, "nuevo")
+        if os.path.isdir(nuevo_dir):
+            shutil.rmtree(nuevo_dir, ignore_errors=True)
+        os.makedirs(nuevo_dir, exist_ok=True)
+        with zipfile.ZipFile(inst_zip, "r") as zf:
+            base_abs = os.path.abspath(nuevo_dir)
+            for member in zf.infolist():
+                member_path = os.path.abspath(
+                    os.path.join(base_abs, member.filename))
+                if (not member_path.startswith(base_abs + os.sep)
+                        and member_path != base_abs):
+                    raise RuntimeError(f"Zip slip detectado: {member.filename}")
+            zf.extractall(nuevo_dir)
+
+        nuevo_app = os.path.join(nuevo_dir, "app")
+        if not os.path.isdir(nuevo_app):
             with _actualizando_lock:
                 _actualizando_en_curso = False
-            msg = str(e_pop).split("\n")[0]
             return jsonify({"ok": False,
-                            "error": f"No se pudo lanzar el setup: {msg}"}), 500
+                            "error": ("El ZIP instalador no contiene la carpeta "
+                                      "app\\. Instala manualmente.")}), 500
+        log(f"[actualizar/aplicar] app\\ nueva lista en {nuevo_app}", "ok")
+
+        # ── Destino = la propia instalacion (carpeta que contiene app\) ─
+        # __file__ = ...\GarumTPV\app\server.py  ->  target = ...\GarumTPV
+        target_root = os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__)))
+
+        # ── Lanzar el actualizador ELEVADO (UAC), una sola ventana ──────
+        # No hay Setup.exe que lanzar; la copia in-place sobre C:\GARUMTOOLS
+        # necesita permisos de admin. Relanzamos el PROPIO python embebido
+        # ejecutando el server NUEVO con --autoupdate-target: esa instancia
+        # (ya elevada) copia app\ sobre la instalacion y rearranca la app.
+        # Solo se lanza python.exe (que el AV ya conoce): sin .exe instalador,
+        # sin .bat, sin cmd. Ver el bloque __main__ -> _aplicar_autoupdate().
+        if sys.platform == "win32":
+            import ctypes
+            SW_SHOWNORMAL = 1
+            nuevo_server = os.path.join(nuevo_app, "server.py")
+            params = f'"{nuevo_server}" --autoupdate-target "{target_root}"'
+            try:
+                ret = ctypes.windll.shell32.ShellExecuteW(
+                    None, "runas", sys.executable, params, nuevo_app,
+                    SW_SHOWNORMAL)
+            except Exception as e_pop:
+                with _actualizando_lock:
+                    _actualizando_en_curso = False
+                msg = str(e_pop).split("\n")[0]
+                return jsonify({"ok": False,
+                                "error": f"No se pudo lanzar el actualizador: {msg}"}), 500
+            # ShellExecuteW devuelve > 32 si el proceso arranco; <= 32 es error.
+            # Caso tipico: el usuario cancela el aviso UAC (1223 ERROR_CANCELLED
+            # / 5 SE_ERR_ACCESSDENIED) -> no cerramos la app para que reintente.
+            if int(ret) <= 32:
+                with _actualizando_lock:
+                    _actualizando_en_curso = False
+                if int(ret) in (1223, 5):
+                    err = ("Hay que aceptar el aviso de Windows (UAC) para "
+                           "instalar la actualizacion. No se acepto, asi que "
+                           "no se ha instalado nada.")
+                else:
+                    err = (f"No se pudo lanzar el actualizador elevado "
+                           f"(codigo {int(ret)}).")
+                return jsonify({"ok": False, "error": err}), 500
+            log(f"[actualizar/aplicar] Actualizador lanzado ELEVADO via UAC "
+                f"(ShellExecuteW ret={int(ret)})", "ok")
+        else:
+            # Fallback no-Windows (no se da en produccion): copia en proceso.
+            shutil.copytree(nuevo_app, os.path.join(target_root, "app"),
+                            dirs_exist_ok=True)
+            log("[actualizar/aplicar] app copiada in-place (no-win)", "ok")
 
         # ── Programar cierre de la app en 5 s ──────────────────────────
-        # Tiempo suficiente para que el setup haya arrancado pero antes
-        # de que intente sobrescribir los ficheros que Flask tiene abiertos.
+        # Le damos margen al actualizador elevado para arrancar; al cerrarnos
+        # liberamos el puerto 5050 y los ficheros para que copie app\ y
+        # rearranque la app ya actualizada (ver _aplicar_autoupdate).
         def _suicidar():
-            log(f"[actualizar/aplicar] os._exit(0) — cerrando para liberar "
-                f"ficheros al setup", "warn")
+            log("[actualizar/aplicar] os._exit(0) — cerrando para ceder el "
+                "control al actualizador elevado", "warn")
             os._exit(0)
 
         threading.Timer(5.0, _suicidar).start()
 
         return jsonify({"ok": True,
                         "version_a_instalar": version_remota,
-                        "setup_path": setup_exe,
+                        "setup_path": nuevo_app,
+                        "metodo": "copia-in-place",
                         "segundos_para_cerrar": 5,
                         "size_mb": size_mb})
     except Exception as e:
@@ -9522,12 +9821,74 @@ def api_cli_put_direccion(id_direccion):
             except Exception: pass
 
 
+def _aplicar_autoupdate(target_root, src_app):
+    """Aplica la actualizacion in-place (v8.4). Se ejecuta en la instancia
+    ELEVADA que lanza api_actualizar_aplicar via
+    'python server.py --autoupdate-target <target>'. Copia src_app (la carpeta
+    app\\ recien extraida en C:\\GARUMTOOLS\\Update\\nuevo) sobre
+    <target_root>\\app y rearranca la app definitiva desde la instalacion.
+    NO arranca Flask.
+    """
+    import time, socket, shutil, subprocess
+    log(f"[autoupdate] Aplicando actualizacion in-place -> {target_root}", "info")
+
+    # 1) Esperar a que la app vieja libere el puerto (se autocierra en ~5 s),
+    #    asi no copiamos/arrancamos con la instancia anterior aun viva.
+    def _puerto_libre(host, port):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.6)
+        try:
+            return s.connect_ex((host, port)) != 0   # !=0 => nadie escucha
+        finally:
+            s.close()
+    for _ in range(60):                               # hasta ~30 s
+        if _puerto_libre(HOST, PORT):
+            break
+        time.sleep(0.5)
+
+    # 2) Copiar app\ nueva sobre la instalacion (ya estamos elevados).
+    dst_app = os.path.join(target_root, "app")
+    try:
+        shutil.copytree(src_app, dst_app, dirs_exist_ok=True)
+        log(f"[autoupdate] app\\ copiada sobre {dst_app}", "ok")
+    except Exception as e:
+        log(f"[autoupdate] ERROR copiando app\\: {e}", "error")
+        os._exit(1)
+
+    # 3) Rearrancar la app definitiva desde la instalacion, con su consola.
+    target_server = os.path.join(dst_app, "server.py")
+    CREATE_NEW_CONSOLE = 0x00000010
+    flags = CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
+    try:
+        subprocess.Popen([sys.executable, target_server],
+                         cwd=target_root, creationflags=flags, close_fds=True)
+        log("[autoupdate] App rearrancada desde la instalacion", "ok")
+    except Exception as e:
+        log(f"[autoupdate] ERROR rearrancando la app: {e}", "error")
+        os._exit(1)
+
+    os._exit(0)
+
+
 def _nav():
     import time; time.sleep(1.3)
     webbrowser.open(f"http://{HOST}:{PORT}")
 
 
 if __name__ == "__main__":
+    # v8.4: modo actualizador in-place. Si nos lanzaron con
+    # --autoupdate-target <ruta>, NO arrancamos Flask: copiamos app\ sobre esa
+    # instalacion y rearrancamos la app definitiva (ver _aplicar_autoupdate).
+    if "--autoupdate-target" in sys.argv:
+        _i = sys.argv.index("--autoupdate-target")
+        _target = sys.argv[_i + 1] if _i + 1 < len(sys.argv) else None
+        _src_app = os.path.dirname(os.path.abspath(__file__))
+        if _target:
+            _aplicar_autoupdate(_target, _src_app)   # hace os._exit
+        log("[autoupdate] --autoupdate-target sin ruta destino; abortando",
+            "error")
+        sys.exit(1)
+
     log(f"GARUM TPV Manager v{APP_VERSION} en http://{HOST}:{PORT}", "info")
     log(f"psycopg2: {PSYCOPG2_OK}", "info" if PSYCOPG2_OK else "warn")
     threading.Thread(target=_nav, daemon=True).start()

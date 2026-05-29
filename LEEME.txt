@@ -1,7 +1,37 @@
-GARUM TPV Manager v8.3
+GARUM TPV Manager v8.4
 =======================
 Herramienta interna para gestionar la integracion de TPVs GARUM.
 Diseno corporativo 4GL Solutions.
+
+
+NOVEDADES v8.4 — ACTUALIZACION SIN .EXE + COMBUSTIBLES EN PISTA + EPT EDITABLE
+-----------------------------------------------------------------------------
+1) YA NO SE USA EL INSTALADOR .EXE.
+   El .exe sin firmar disparaba alertas de antivirus. Ahora se instala solo
+   con el ZIP instalador (INSTALAR.bat) o con el portable. La auto-
+   actualizacion del modulo "Actualizar" tampoco usa el .exe: descarga el
+   pack y copia los ficheros nuevos sobre la instalacion pidiendo UNA sola
+   vez el permiso de Windows (UAC). La app se cierra y se reabre sola ya
+   actualizada.
+
+2) "COMBUSTIBLES" AHORA ESTA DENTRO DE CONTROL PISTA.
+   Ha dejado de estar en el menu de la izquierda; ahora es una pestaña dentro
+   de Control Pista (donde antes ponia "Productos"). Usa el mismo selector de
+   TPV de pista.
+
+3) EPT (TERMINALES DE PAGO) EDITABLE.
+   En Control Pista -> pestaña EPT ya puedes editar los campos haciendo clic.
+   El cambio se aplica a TODOS los TPVs accesibles. Las columnas relacionadas
+   (forma de pago, personal...) se editan con un desplegable, para no teclear
+   ids equivocados.
+
+4) Pequenas mejoras de textos en Reintegrar y Nuevo TPV.
+
+IMPORTANTE (despliegue):
+   Los TPV que esten en v8.1 o v8.2 traen el boton "Actualizar" roto, asi que
+   esta version (v8.4) hay que instalarla A MANO una vez en cada TPV (con el
+   ZIP instalador o el portable). A partir de v8.4 la actualizacion automatica
+   ya funciona sola.
 
 
 NOVEDADES v8.3 — FIX: LA AUTO-ACTUALIZACION YA ENCUENTRA EL PACK NUEVO
