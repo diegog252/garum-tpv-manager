@@ -1,5 +1,5 @@
 @echo off
-title GARUM TPV Manager v8.1
+title GARUM TPV Manager v8.2
 color 0A
 cls
 if not exist "%~dp0python\python.exe" (
@@ -14,7 +14,7 @@ if not exist "%~dp0python\python.exe" (
 )
 echo.
 echo  ================================
-echo   GARUM TPV Manager v8.1
+echo   GARUM TPV Manager v8.2
 echo  ================================
 echo.
 echo  Arrancando servidor...

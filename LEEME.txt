@@ -1,7 +1,35 @@
-GARUM TPV Manager v8.1
+GARUM TPV Manager v8.2
 =======================
 Herramienta interna para gestionar la integracion de TPVs GARUM.
 Diseno corporativo 4GL Solutions.
+
+
+NOVEDADES v8.2 — INSTALACION/REINTEGRACION MAS AUTOMATICA
+----------------------------------------------------------
+Pulido del flujo de campo. 3 mejoras pensadas para que el tecnico tenga
+que acordarse de menos pasos manuales.
+
+1) BARRA DE PROGRESO REAL AL DESCARGAR Setup-GARUM
+   El boton "▶ Descargar y descomprimir" (paso 0 de Reintegrar / Nuevo
+   TPV) ahora muestra una barra con el porcentaje y los MB descargados
+   sobre el total. Antes parecia que se quedaba colgado durante la
+   descarga del ZIP. Ahora se ve el avance real.
+
+2) "ACCESO POSTGRESQL EN RED" YA NO ES UN BOTON MANUAL
+   Lo que en v8.1 era un bloque colapsable que habia que acordarse de
+   pulsar antes de reintegrar/instalar, ahora se ejecuta SOLO como
+   paso 0 del proceso — en cuanto pulsas "Reintegrar ahora" / "Iniciar".
+   Aparece como una tarjeta mas del plan: verde si OK, roja si falla.
+   Si falla, el proceso NO arranca (te avisa de que revises PostgreSQL).
+   Aplica a las dos paginas: Reintegrar TPV y Nuevo TPV.
+
+3) "USUARIO DE SISTEMA" INTEGRADO EN EL PLAN (Reintegrar)
+   El antiguo "PASO PREVIO: Usuario sistema" deja de ser un bloque
+   aparte y pasa a ser otro paso automatico del plan (paso 0b). Crea
+   integracion4gl SOLO si no existe. Si no hay contrasena disponible,
+   la tarjeta se pone en AMBAR avisando, pero el proceso SIGUE (no
+   aborta) — porque el robocopy del paso 6 ya funciona con la IP y
+   credenciales que pones, sin depender de ese usuario.
 
 
 NOVEDADES v8.1 — HARDENING DE PRODUCCION (4 mejoras detectadas en cliente)
@@ -800,4 +828,4 @@ DOCUMENTACION COMPLETA
 ----------------------
 Ver README.md en esta misma carpeta.
 
-VERSION ACTUAL: v8.1
+VERSION ACTUAL: v8.2

@@ -805,6 +805,13 @@ html,body{
 .step-card.error .step-card-ico{background:var(--red-s);color:#fff}
 .step-card.error .step-card-ico::before{content:"✕"}
 .step-card.error .step-card-tit{color:var(--red-s)}
+/* Barra de progreso de descarga Setup-GARUM (PASO 0) */
+.setup-garum-bar-track{height:16px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);overflow:hidden}
+.setup-garum-bar-fill{height:100%;width:0;background:linear-gradient(90deg,var(--blue),var(--teal));transition:width .3s ease}
+.setup-garum-bar-fill.ind{width:35%;animation:sg-ind 1.2s ease-in-out infinite}
+.setup-garum-bar-fill.ok{background:var(--green)}
+.setup-garum-bar-fill.warn{background:var(--amber)}
+@keyframes sg-ind{0%{margin-left:-35%}100%{margin-left:100%}}
 /* Selector visual de impuesto (modulo Articulos) */
 .imp-badge{display:inline-flex;align-items:center;gap:10px;padding:6px 12px;border:1.5px dashed var(--teal);border-radius:8px;background:var(--surface);cursor:pointer;transition:background .15s,border-color .15s;font-family:inherit;min-width:200px}
 .imp-badge:hover{background:var(--blue-bg);border-color:var(--teal);border-style:solid}
@@ -1009,6 +1016,14 @@ html,body{
             </div>
             <div class="fr" style="margin-bottom:18px">
               <div class="fg" style="margin-bottom:0"><label class="fl">Usuario</label><input class="fi" id="cUser" value="postgres"></div>
+            </div>
+            <div style="border:1px solid var(--border2);background:var(--bg3);border-radius:8px;padding:12px 14px">
+              <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">🔐 Usuario de sistema (integración entre TPVs)</div>
+              <div class="fr" style="margin-bottom:6px">
+                <div class="fg" style="margin-bottom:0"><label class="fl">Usuario</label><input class="fi" id="cUsysUser" value="integracion4gl"></div>
+                <div class="fg" style="margin-bottom:0"><label class="fl">Contraseña</label><div class="pwrap"><input class="fi" id="cUsysPass" type="password" placeholder="Opcional" autocomplete="off"><button class="ptog" type="button" onclick="togglePassEl('cUsysPass')">👁</button></div></div>
+              </div>
+              <div class="combo-hint" style="margin-bottom:0">Opcional. Solo para copiar archivos entre TPVs y crear el usuario técnico. La misma contraseña debe existir en todos los TPVs. No se guarda en disco.</div>
             </div>
           </div>
           <div style="display:flex;gap:8px;margin-top:6px">
@@ -1410,6 +1425,14 @@ html,body{
       <div class="inst-prog-step" id="instProgBtn5">5 · Resultado</div>
     </div>
 
+    <!-- 🧰 Preparación previa — pasos manuales antes del asistente. El acceso
+         PostgreSQL (pg_hba) ya NO va aquí: se ejecuta como paso 0 automático
+         dentro de "2 · Backup + Restore" (ver instStep0). -->
+    <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px;display:flex;align-items:center;gap:8px">
+      🧰 Preparación previa
+      <span style="flex:1;height:1px;background:var(--border)"></span>
+    </div>
+
     <!-- PASO 0: descarga del Setup-GARUM.zip (BBDD + Java + GARUM) desde la nube 4GL.
          Bloque IDÉNTICO al de page-reintegrar — usa clases en vez de IDs para que ambas
          instancias funcionen sin colisiones de getElementById. -->
@@ -1427,29 +1450,11 @@ html,body{
           ▶ Descargar y descomprimir
         </button>
         <span class="setup-garum-hint" style="margin-left:12px;font-size:12px;color:var(--text2)"></span>
-        <div class="setup-garum-resultado" style="display:none;margin-top:14px"></div>
-      </div>
-    </details>
-
-    <!-- v8.1: PASO PREVIO 2 — Acceso PostgreSQL en red. Duplicado igual en
-         page-reintegrar (busca pg-acceso-block para localizar el gemelo).
-         Usa clases en vez de IDs para que la función JS controle ambas instancias. -->
-    <details class="inst-section pg-acceso-block" style="margin-bottom:16px">
-      <summary style="cursor:pointer;font-weight:600;color:var(--text);padding:4px 0;list-style:none;display:flex;align-items:center;gap:8px">
-        <span style="font-size:11px;font-weight:700;background:var(--amber-bg);color:var(--amber);padding:2px 8px;border-radius:6px;border:1px solid var(--amber-bd)">PASO PREVIO 2</span>
-        🔓 Acceso PostgreSQL en red
-        <span class="pg-acceso-estado" style="margin-left:8px;font-size:11px"></span>
-        <span style="margin-left:auto;font-size:12px;color:var(--text3);font-weight:400">clic para abrir/cerrar</span>
-      </summary>
-      <div style="padding-top:12px;border-top:1px solid var(--border);margin-top:8px">
-        <div style="font-size:13px;color:var(--text2);line-height:1.4;margin-bottom:12px">
-          Configura <code>pg_hba.conf</code> y <code>postgresql.conf</code> para permitir conexiones de la red GARUM (<code>10.0.0.0/24</code>) — idempotente, hace backup <code>.bak</code>.
+        <div class="setup-garum-bar" style="display:none;margin-top:12px;max-width:560px">
+          <div class="setup-garum-bar-track"><div class="setup-garum-bar-fill"></div></div>
+          <div class="setup-garum-bar-label" style="margin-top:6px;font-size:12px;color:var(--text2)"></div>
         </div>
-        <button class="btn btn-d btn-sm pg-acceso-btn" onclick="pgAccConfigurar()">
-          ▶ Configurar acceso de red
-        </button>
-        <span class="pg-acceso-hint" style="margin-left:12px;font-size:12px;color:var(--text2)"></span>
-        <div class="pg-acceso-resultado" style="display:none;margin-top:14px"></div>
+        <div class="setup-garum-resultado" style="display:none;margin-top:14px"></div>
       </div>
     </details>
 
@@ -1507,6 +1512,15 @@ html,body{
     <div id="instPaso2" style="display:none">
       <div class="inst-section">
         <div class="inst-section-title">📦 Backup de TPV1 + 🔄 Restore en este equipo</div>
+        <!-- v8.2: PASO 0 — acceso PostgreSQL en red (pg_hba). Se ejecuta solo al
+             pulsar "Iniciar" (antes del backup). Verde si OK / rojo si falla. -->
+        <div class="step-card pending" id="instStep0" style="margin-bottom:14px">
+          <div class="step-card-ico"></div>
+          <div class="step-card-body">
+            <div class="step-card-tit">0. Acceso PostgreSQL en red (pg_hba)</div>
+            <div class="step-card-msg">Configura <code>pg_hba.conf</code> + <code>postgresql.conf</code> para la subred <code>10.0.0.0/24</code> — se ejecuta automáticamente al iniciar (idempotente, backup <code>.bak</code>).</div>
+          </div>
+        </div>
         <div style="font-size:var(--t-xs);color:var(--text2);margin-bottom:10px">
           <strong>BDs:</strong> tpv + controlpista &nbsp;·&nbsp;
           <strong>Origen:</strong> <span id="instBackupOrigen" style="font-family:var(--mono-f)"></span> &nbsp;·&nbsp;
@@ -1590,6 +1604,15 @@ html,body{
       <div>Para TPVs que <strong>ya estaban en la red</strong>. Si es nuevo → <a href="#" onclick="event.preventDefault();irA('instalacion')">🔧 Nuevo TPV</a>.</div>
     </div>
 
+    <!-- 🧰 Preparación previa — pasos manuales antes de reintegrar. El acceso
+         PostgreSQL (pg_hba) y el usuario de sistema (integracion4gl) ya NO van
+         aquí: se ejecutan como pasos 0a/0b automáticos del plan al pulsar
+         "Reintegrar ahora" (ver reiStep0 / reiStepUsys). -->
+    <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px;display:flex;align-items:center;gap:8px">
+      🧰 Preparación previa
+      <span style="flex:1;height:1px;background:var(--border)"></span>
+    </div>
+
     <!-- PASO 0: descarga del Setup-GARUM.zip (BBDD + Java + GARUM) desde la nube 4GL.
          Bloque DUPLICADO en page-instalacion — usa clases en vez de IDs para que ambas
          instancias funcionen sin colisiones de getElementById. -->
@@ -1607,52 +1630,11 @@ html,body{
           ▶ Descargar y descomprimir
         </button>
         <span class="setup-garum-hint" style="margin-left:12px;font-size:12px;color:var(--text2)"></span>
+        <div class="setup-garum-bar" style="display:none;margin-top:12px;max-width:560px">
+          <div class="setup-garum-bar-track"><div class="setup-garum-bar-fill"></div></div>
+          <div class="setup-garum-bar-label" style="margin-top:6px;font-size:12px;color:var(--text2)"></div>
+        </div>
         <div class="setup-garum-resultado" style="display:none;margin-top:14px"></div>
-      </div>
-    </details>
-
-    <!-- v8.1: PASO PREVIO 2 — Acceso PostgreSQL en red. Duplicado en page-instalacion. -->
-    <details class="inst-section pg-acceso-block" style="margin-bottom:16px">
-      <summary style="cursor:pointer;font-weight:600;color:var(--text);padding:4px 0;list-style:none;display:flex;align-items:center;gap:8px">
-        <span style="font-size:11px;font-weight:700;background:var(--amber-bg);color:var(--amber);padding:2px 8px;border-radius:6px;border:1px solid var(--amber-bd)">PASO PREVIO 2</span>
-        🔓 Acceso PostgreSQL en red
-        <span class="pg-acceso-estado" style="margin-left:8px;font-size:11px"></span>
-        <span style="margin-left:auto;font-size:12px;color:var(--text3);font-weight:400">clic para abrir/cerrar</span>
-      </summary>
-      <div style="padding-top:12px;border-top:1px solid var(--border);margin-top:8px">
-        <div style="font-size:13px;color:var(--text2);line-height:1.4;margin-bottom:12px">
-          Configura <code>pg_hba.conf</code> y <code>postgresql.conf</code> para permitir conexiones de la red GARUM (<code>10.0.0.0/24</code>) — idempotente, hace backup <code>.bak</code>.
-        </div>
-        <button class="btn btn-d btn-sm pg-acceso-btn" onclick="pgAccConfigurar()">
-          ▶ Configurar acceso de red
-        </button>
-        <span class="pg-acceso-hint" style="margin-left:12px;font-size:12px;color:var(--text2)"></span>
-        <div class="pg-acceso-resultado" style="display:none;margin-top:14px"></div>
-      </div>
-    </details>
-
-    <!-- PASO PREVIO: crear el usuario Windows local "integracion4gl" que la app
-         usa para autenticar el robocopy a \\IP\C$\GARUM. Debe existir en TODOS
-         los TPVs (principal + destino) para que el paso 6 del job funcione. -->
-    <details class="inst-section" id="reiUsysDetails" style="margin-bottom:16px">
-      <summary style="cursor:pointer;font-weight:600;color:var(--text);padding:4px 0;list-style:none;display:flex;align-items:center;gap:8px">
-        <span style="font-size:11px;font-weight:700;background:var(--amber-bg);color:var(--amber);padding:2px 8px;border-radius:6px;border:1px solid var(--amber-bd)">PASO PREVIO</span>
-        🔐 Usuario sistema — <code id="usysNombre">integracion4gl</code>
-        <span style="margin-left:auto;font-size:12px;color:var(--text3);font-weight:400">clic para abrir/cerrar</span>
-      </summary>
-      <div style="padding-top:12px;border-top:1px solid var(--border);margin-top:8px">
-        <div style="font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:12px">
-          Crea el usuario admin local que la app usa para acceder a
-          <code>\\IP\C$\GARUM</code> del principal en el paso 6. Debe existir en
-          <strong>todos los TPVs</strong> (principal + destino). Repite este paso
-          conectándote por AnyDesk a cada TPV.
-          <br><span style="color:var(--text3);font-size:12px">Si el usuario ya existe, <strong>no se toca</strong> (ni contraseña, ni grupo, ni flags). Solo se crea cuando falta.</span>
-        </div>
-        <button class="btn btn-d btn-sm" id="usysBtn" onclick="usysCrear()">
-          ▶ Crear si no existe en este equipo
-        </button>
-        <span id="usysHint" style="margin-left:12px;font-size:12px;color:var(--text2)"></span>
-        <div id="usysResultado" style="display:none;margin-top:14px"></div>
       </div>
     </details>
 
@@ -1718,6 +1700,28 @@ html,body{
     <div class="inst-section" style="margin-bottom:16px">
       <div class="inst-section-title">📋 Plan</div>
       <div id="reiPlan" style="margin-top:10px">
+        <!-- v8.2: PASO 0 — acceso PostgreSQL en red (pg_hba). Se ejecuta solo al
+             pulsar "Reintegrar ahora" (antes del backup). Verde si OK / rojo si
+             falla. Se gestiona aparte de rei_pintarSteps (que solo toca 1..7). -->
+        <div class="step-card pending" id="reiStep0">
+          <div class="step-card-ico"></div>
+          <div class="step-card-body">
+            <div class="step-card-tit">0a. Acceso PostgreSQL en red (pg_hba)</div>
+            <div class="step-card-msg">Configura <code>pg_hba.conf</code> + <code>postgresql.conf</code> para la subred <code>10.0.0.0/24</code> — se ejecuta automáticamente al iniciar (idempotente, backup <code>.bak</code>).</div>
+          </div>
+        </div>
+        <!-- v8.2: PASO 0b — usuario de sistema integracion4gl. Se crea SOLO si
+             falta (idempotente). NO aborta el reintegrar: si falta la clave usys
+             o falla, queda ámbar (skipped) y el job sigue igual (el paso 6 de
+             copia GARUM podría fallar). Se gestiona aparte de rei_pintarSteps
+             (que solo toca 1..7), igual que reiStep0. -->
+        <div class="step-card pending" id="reiStepUsys">
+          <div class="step-card-ico"></div>
+          <div class="step-card-body">
+            <div class="step-card-tit">0b. Usuario de sistema — crear si no existe</div>
+            <div class="step-card-msg">Crea el usuario admin local <code>integracion4gl</code> (solo si falta) que usa el robocopy del paso 6 para acceder a <code>\\IP\C$\GARUM</code>. Se ejecuta automáticamente al iniciar.</div>
+          </div>
+        </div>
         <div class="step-card pending" id="reiStep1">
           <div class="step-card-ico"></div>
           <div class="step-card-body">
@@ -2293,6 +2297,7 @@ var HINTS={
       if(cfg.ultimo_port)document.getElementById('cPort').value=cfg.ultimo_port;
       if(cfg.ultimo_db)document.getElementById('cDb').value=cfg.ultimo_db;
       if(cfg.ultimo_user)document.getElementById('cUser').value=cfg.ultimo_user;
+      if(cfg.ultimo_usys_user)document.getElementById('cUsysUser').value=cfg.ultimo_usys_user;
     }
     // Cargar TPVs personalizados si los hay — validar formato antes de usar
     if(cfg&&cfg.tpvs_custom&&cfg.tpvs_custom.length>0){
@@ -2559,6 +2564,7 @@ function sincronizarHost() {
 // ──────────────────────────────────────────────────────────────────
 
 function togglePass(){var i=document.getElementById('cPass');i.type=i.type==='password'?'text':'password';}
+function togglePassEl(id){var i=document.getElementById(id);if(i)i.type=i.type==='password'?'text':'password';}
 function toggleAvanzado(){
   var f=document.getElementById('avF'),b=document.getElementById('btnAv');
   var o=f.classList.toggle('open');
@@ -2633,7 +2639,7 @@ async function conectar(){
   if(!_csrf){showErr('loginErr','Error interno. Recarga la página.');return;}
   var origHtml=btn.innerHTML;
   btn.innerHTML='<span class="spin"></span> Conectando...';btn.disabled=true;
-  var body={host:document.getElementById('cHost').value||'10.0.0.101',port:document.getElementById('cPort').value||'5432',dbname:document.getElementById('cDb').value||'tpv',user:document.getElementById('cUser').value||'postgres',password:pw};
+  var body={host:document.getElementById('cHost').value||'10.0.0.101',port:document.getElementById('cPort').value||'5432',dbname:document.getElementById('cDb').value||'tpv',user:document.getElementById('cUser').value||'postgres',password:pw,usys_user:(document.getElementById('cUsysUser').value||'').trim(),usys_pwd:document.getElementById('cUsysPass').value||''};
   var r;
   try{
     r=await post('/api/conectar',body);
@@ -4278,12 +4284,26 @@ function _instVerifEstado(tipo, html){
 
 function instIniciarBackupRestore(){
   var btn=document.getElementById('instBtn2Iniciar');
-  btn.disabled=true; btn.textContent='⟳ Backup en curso...';
+  btn.disabled=true; btn.textContent='⟳ Paso 0: acceso PostgreSQL...';
   document.getElementById('instBtn2Atras').disabled=true;
   document.getElementById('instLogBackup').textContent='';
   document.getElementById('instLogRestore').textContent='Esperando a que termine el backup...';
   document.getElementById('instBackupEstado').style.display='none';
 
+  // v8.2: PASO 0 — acceso PostgreSQL en red (pg_hba) automático antes del backup.
+  // Verde si OK / rojo si falla. Si falla, se aborta (no se lanza el backup).
+  pgAccEjecutarEnCard(document.getElementById('instStep0')).then(function(ok0){
+    if(!ok0){
+      _instJobEstado('instBackupEstado','e','✗ Falló el acceso PostgreSQL en red (paso 0). Revisa que PostgreSQL esté arrancado y reintenta.');
+      _instBackupRestoreFallo();
+      return;
+    }
+    btn.textContent='⟳ Backup en curso...';
+    _instLanzarBackup();
+  });
+}
+
+function _instLanzarBackup(){
   post('/api/instalar/iniciar-backup',{
     ip_origen: instState.ipOrigen,
     password:  instState.password
@@ -4572,7 +4592,10 @@ function instMostrarPaso(n){
       else if(i<n)btn.classList.add('done');
     }
   }
-  if(n===2){document.getElementById('instBackupOrigen').textContent=instState.ipOrigen;}
+  if(n===2){
+    document.getElementById('instBackupOrigen').textContent=instState.ipOrigen;
+    pgAccResetCard(document.getElementById('instStep0')); // paso 0 pg_hba a pending
+  }
   if(n===3){document.getElementById('instSeriesNumPuesto').textContent=instState.numPuesto;}
   if(n===4){instBuildPreview();}
 }
@@ -4645,10 +4668,12 @@ function rei_inicializar(){
   if(pwd) pwd.value='';
   if(logCont){ logCont.style.display='none'; logCont.open=false; }
   if(resBox){ resBox.style.display='none'; resBox.innerHTML=''; }
-  // Reset visual del plan paso a paso
+  // Reset visual del plan paso a paso (pasos 1..7 del job)
   rei_pintarSteps({});
-  // Reset de la sección "Paso previo - Usuario sistema" (integrada en esta página)
-  try { usysInicializar(); } catch(e){ /* JS no cargado aún, ignorable */ }
+  // Pasos 0a (pg_hba) y 0b (usuario sistema) se gestionan aparte del polling
+  // del job; resetear ambas tarjetas a pending.
+  pgAccResetCard(document.getElementById('reiStep0'));
+  usysResetCard(document.getElementById('reiStepUsys'));
   // Reset de la marca "el usuario tocó la IP local manualmente"
   rei_ipLocalManual = false;
   // Cancela polling previo si lo hubiera.
@@ -4890,6 +4915,35 @@ function rei_iniciar(){
   reiState.lastCopiarGarum = copiarGarum;
   reiState.tInicio = Date.now();
 
+  // v8.2: PASO 0 — acceso PostgreSQL en red (pg_hba). Se ejecuta automáticamente
+  // antes de lanzar el job; si falla, se aborta (sin acceso de red el reintegrar
+  // no podría conectar al principal). Verde si OK / rojo si falla.
+  if(hint){ hint.textContent='Paso 0a: configurando acceso PostgreSQL…'; hint.style.color='var(--text2)'; }
+  pgAccEjecutarEnCard(document.getElementById('reiStep0')).then(function(ok0){
+    if(!ok0){
+      if(logEl) logEl.textContent='✕ Falló el paso 0a (acceso PostgreSQL en red). Revisa que PostgreSQL esté arrancado y vuelve a intentarlo.';
+      if(logCont) logCont.open=true; // auto-abrir log en error
+      if(btn) btn.disabled=false;
+      if(hint){ hint.textContent='✕ Falló el acceso PostgreSQL'; hint.style.color='var(--red-s)'; }
+      return;
+    }
+    // Paso 0b — usuario de sistema (crear si no existe). NO aborta el job: si
+    // falla o falta la clave usys queda ámbar y el reintegrar continúa igual.
+    if(hint){ hint.textContent='Paso 0b: usuario de sistema…'; hint.style.color='var(--text2)'; }
+    usysEjecutarEnCard(document.getElementById('reiStepUsys')).then(function(){
+      _rei_lanzarJob(v, pwd, editarHib, copiarGarum);
+    });
+  });
+}
+
+// Lanza el job de reintegrar (pasos 1..7) tras superar el paso 0 (pg_hba).
+// Extraído de rei_iniciar para poder ejecutarse después del paso 0 asíncrono.
+function _rei_lanzarJob(v, pwd, editarHib, copiarGarum){
+  var btn=document.getElementById('reiBtnIniciar');
+  var hint=document.getElementById('reiBtnHint');
+  var logCont=document.getElementById('reiLogCont');
+  var logEl=document.getElementById('reiLog');
+  if(hint){ hint.textContent='Trabajando…'; hint.style.color='var(--text2)'; }
   // Enviamos overrides explicitos: el backend valida y los prefiere a la auto-detección.
   post('/api/reintegrar/iniciar',{password:pwd, num_tpv:v.num_tpv, ip_origen:v.ip_origen, ip_local:v.ip_local, editar_hibernate:editarHib, copiar_garum:copiarGarum}).then(function(r2){
     if(!r2||!r2.ok){
@@ -7698,7 +7752,14 @@ function _serMarGlobalRender(r, esPreview){
            + '</div>';
     }
     var ejemplos = (it.ejemplos||[]).slice(0,5).map(function(e){
-      return '<div style="font-size:11px;color:var(--text2);padding:2px 0">'
+      // Badge propia/ajena: verde=propia de este TPV, azul=ajena (pertenece a
+      // otro), gris=indeterminado (el TPV no respondió en la fase 1).
+      var bdg;
+      if(e.propia===true) bdg='<span style="background:var(--green-bg);color:var(--green);border:1px solid var(--green-bd);padding:0 5px;border-radius:4px;font-size:10px;font-weight:600">PROPIA</span>';
+      else if(e.propia===false) bdg='<span style="background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue-bd);padding:0 5px;border-radius:4px;font-size:10px;font-weight:600">AJENA</span>';
+      else bdg='<span style="background:var(--bg3);color:var(--text3);border:1px solid var(--border2);padding:0 5px;border-radius:4px;font-size:10px;font-weight:600" title="No se pudo determinar (TPV no respondió al descubrir propietarios)">?</span>';
+      return '<div style="font-size:11px;color:var(--text2);padding:2px 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center">'
+           + bdg
            + '<code style="color:var(--text3)">'+H(e.serie)+'</code> · '
            + '<span style="text-decoration:line-through;color:var(--text3)">'+H(e.antes||'(vacío)')+'</span> → '
            + '<strong>'+H(e.despues)+'</strong>'
@@ -7893,56 +7954,128 @@ function _serMapaRender(r){
 }
 
 // ============================================================================
-// v8.1 — PASO PREVIO 2: Acceso PostgreSQL en red.
-// Modifica pg_hba.conf + postgresql.conf + pg_ctl reload. Mismo patrón de
-// clases (no IDs) para que la misma función gestione ambas instancias.
+// v8.2 — Acceso PostgreSQL en red ejecutado como PASO 0 del job (pg_hba).
+// Configura pg_hba.conf + postgresql.conf + pg_ctl reload (idempotente, backup
+// .bak). Recibe una .step-card del plan y la pinta running -> done(verde)/
+// error(rojo). Devuelve true si quedó OK (aunque el reload fallara, en cuyo
+// caso avisa de reiniciar PostgreSQL); false si hubo fallo duro. Lo usan tanto
+// Reintegrar (reiStep0) como Nuevo TPV (instStep0).
 // ============================================================================
 
-async function pgAccConfigurar(){
-  var btns  = document.querySelectorAll('.pg-acceso-btn');
-  var hints = document.querySelectorAll('.pg-acceso-hint');
-  var ress  = document.querySelectorAll('.pg-acceso-resultado');
-  var ests  = document.querySelectorAll('.pg-acceso-estado');
-  btns.forEach(function(b){ b.disabled = true; });
-  hints.forEach(function(h){ h.textContent='⏳ Configurando…'; h.style.color='var(--text2)'; });
-  ress.forEach(function(r){ r.style.display='none'; r.innerHTML=''; });
+// Texto descriptivo por defecto de la tarjeta pg_hba (estado pending). Único
+// punto de verdad: lo reutilizan el reset y el HTML inicial de ambas páginas.
+var PG_ACC_MSG_DEFECTO = 'Configura <code>pg_hba.conf</code> + <code>postgresql.conf</code> '
+  + 'para la subred <code>10.0.0.0/24</code> — se ejecuta automáticamente al iniciar '
+  + '(idempotente, backup <code>.bak</code>).';
+
+// Resetea una .step-card de pg_hba a 'pending' con su descripción por defecto.
+function pgAccResetCard(cardEl){
+  if(!cardEl) return;
+  cardEl.classList.remove('running','done','error','skipped');
+  cardEl.classList.add('pending');
+  var m = cardEl.querySelector('.step-card-msg');
+  if(m) m.innerHTML = PG_ACC_MSG_DEFECTO;
+}
+
+async function pgAccEjecutarEnCard(cardEl){
+  if(!cardEl) return false;
+  var msgEl = cardEl.querySelector('.step-card-msg');
+  function setEstado(st){
+    cardEl.classList.remove('pending','running','done','error','skipped');
+    cardEl.classList.add(st);
+  }
+  function setMsg(t){ if(msgEl) msgEl.innerHTML = t; }
+
+  setEstado('running');
+  setMsg('Configurando acceso de red (pg_hba.conf + postgresql.conf)…');
 
   var r;
   try {
     r = await post('/api/pg-acceso/configurar', {});
   } catch(e){
-    hints.forEach(function(h){ h.textContent='✕ Error de red: '+String(e); h.style.color='var(--red-s)'; });
-    btns.forEach(function(b){ b.disabled=false; });
-    return;
+    setEstado('error');
+    setMsg('Error de red: '+H(String(e)));
+    return false;
   }
 
   if(r && r.ok){
-    var cambiosTxt = [];
-    if(r.listen_addresses_cambiado) cambiosTxt.push("listen_addresses = '*'");
-    if(r.hba_subnet_anadida) cambiosTxt.push("línea 10.0.0.0/24 añadida");
-    var msg = cambiosTxt.length ? cambiosTxt.join(' + ') : 'ya estaba configurado';
-    hints.forEach(function(h){ h.textContent='✓ Listo · '+msg; h.style.color='var(--green)'; });
-    ests.forEach(function(e){ e.innerHTML='<span style="color:var(--green)">✓ configurado</span>'; });
-    var html = '<div class="al al-s" style="display:flex;gap:8px;align-items:flex-start">'
-             + '<span class="ai">✓</span>'
-             + '<div><strong>PostgreSQL '+H(r.version||'?')+'</strong> configurado:'
-             + '<ul style="margin:6px 0 0 22px;line-height:1.55;font-size:12px">'
-             + '<li>'+H(r.paths.conf)+' → listen_addresses = '+(r.listen_addresses_cambiado?'<strong>cambiado a *</strong>':'ya estaba')+'</li>'
-             + '<li>'+H(r.paths.hba)+' → '+(r.hba_subnet_anadida?'<strong>10.0.0.0/24 añadida</strong>':'ya tenía 10.0.0.0/24')+'</li>'
-             + '<li>pg_ctl reload: '+(r.reload_ok?'<strong style="color:var(--green)">OK</strong>':'<strong style="color:var(--red-s)">fallo</strong>')+'</li>'
-             + '</ul></div></div>';
-    ress.forEach(function(rEl){ rEl.innerHTML=html; rEl.style.display=''; });
-  } else {
-    var err = (r && r.error) || 'Error desconocido';
-    hints.forEach(function(h){ h.textContent='✕ '+err; h.style.color='var(--red-s)'; });
-    ess = document.querySelectorAll('.pg-acceso-estado');
-    ess.forEach(function(e){ e.innerHTML='<span style="color:var(--red-s)">✕ fallo</span>'; });
-    ress.forEach(function(rEl){
-      rEl.innerHTML='<div class="al al-e"><span class="ai">✕</span>'+H(err)+'</div>';
-      rEl.style.display='';
-    });
+    var cambios = [];
+    if(r.listen_addresses_cambiado) cambios.push("listen_addresses = '*'");
+    if(r.hba_subnet_anadida) cambios.push('línea 10.0.0.0/24 añadida');
+    var resumen = cambios.length ? cambios.join(' + ') : 'ya estaba configurado';
+    var msg = 'PostgreSQL '+H(r.version||'?')+' · '+resumen;
+    if(r.reload_ok === false){
+      msg += ' · <strong style="color:var(--amber)">reinicia PostgreSQL para aplicar</strong>';
+    }
+    setEstado('done');
+    setMsg(msg);
+    return true;
   }
-  btns.forEach(function(b){ b.disabled=false; });
+
+  setEstado('error');
+  setMsg(H((r && r.error) || 'Error desconocido'));
+  return false;
+}
+
+
+// ============================================================================
+// PASO 0b — USUARIO DE SISTEMA (integracion4gl) ejecutado como paso del plan.
+// Crea el usuario admin local SOLO si falta (idempotente, backend /crear).
+// A diferencia de pg_hba, NO aborta el reintegrar: si falla o falta la clave
+// usys queda ámbar (skipped) y el job continúa (el paso 6 de copia GARUM por
+// robocopy podría fallar, pero es opcional).
+// ============================================================================
+
+var USYS_CARD_MSG_DEFECTO = 'Crea el usuario admin local <code>integracion4gl</code> (solo si falta) que usa el robocopy del paso 6 para acceder a <code>\\\\IP\\C$\\GARUM</code>. Se ejecuta automáticamente al iniciar.';
+
+function usysResetCard(cardEl){
+  if(!cardEl) return;
+  cardEl.classList.remove('running','done','error','skipped');
+  cardEl.classList.add('pending');
+  var msg = cardEl.querySelector('.step-card-msg');
+  if(msg) msg.innerHTML = USYS_CARD_MSG_DEFECTO;
+}
+
+// Ejecuta la creación del usuario de sistema dentro de una .step-card.
+// Devuelve SIEMPRE una promesa que resuelve a bool (true=usuario OK), pero el
+// llamador la ignora: el reintegrar sigue pase lo que pase (ver rei_iniciar).
+//   exists/created → done (verde)
+//   partial/sin_pwd/error → skipped (ámbar) + mensaje explicativo
+async function usysEjecutarEnCard(cardEl){
+  if(!cardEl) return true;
+  var msg = cardEl.querySelector('.step-card-msg');
+  cardEl.classList.remove('pending','done','error','skipped');
+  cardEl.classList.add('running');
+  if(msg) msg.textContent = 'Comprobando / creando integracion4gl…';
+  var r;
+  try {
+    // usys_pwd vacío → el backend usa las credenciales de la sesión (login).
+    r = await post('/api/usuario-sistema/crear', { usys_pwd: '' });
+  } catch(e){
+    cardEl.classList.remove('running'); cardEl.classList.add('skipped');
+    if(msg) msg.textContent = '⚠ No se pudo comprobar (error de red). El reintegrar continúa; el paso 6 (copia GARUM) podría fallar.';
+    return false;
+  }
+  var res = r && r.resultado;
+  if(r && r.ok && (res === 'exists' || res === 'created')){
+    cardEl.classList.remove('running'); cardEl.classList.add('done');
+    if(msg) msg.textContent = (res === 'exists')
+      ? '✓ El usuario ya existía — no se ha tocado nada'
+      : '✓ Usuario creado y añadido al grupo Administradores';
+    return true;
+  }
+  // partial / sin_pwd / error → ámbar, seguir igual
+  cardEl.classList.remove('running'); cardEl.classList.add('skipped');
+  if(msg){
+    if(res === 'partial'){
+      msg.textContent = '⚠ Usuario creado pero hubo un problema con el grupo Administradores. El reintegrar continúa.';
+    } else if(res === 'sin_pwd'){
+      msg.textContent = '⚠ Falta la contraseña usys (no se introdujo en el login) y el usuario no existe, así que no se ha podido crear. El reintegrar continúa; si el paso 6 (copia GARUM) falla, reconéctate metiendo la clave usys en el login.';
+    } else {
+      msg.textContent = '⚠ ' + ((r && r.resumen) || 'No se pudo crear el usuario') + '. El reintegrar continúa.';
+    }
+  }
+  return false;
 }
 
 
@@ -7954,71 +8087,152 @@ async function pgAccConfigurar(){
 // AMBAS via querySelectorAll.
 // ============================================================================
 
+// La descarga corre en un thread de fondo (~1.2 GB). Esta funcion arranca el
+// job y luego polea /api/setup-garum/progreso cada 800ms pintando la barra.
+var _setupGarumPoll = null;
+
 async function setupGarumDescargar(){
   var btns  = document.querySelectorAll('.setup-garum-btn');
   var hints = document.querySelectorAll('.setup-garum-hint');
   var ress  = document.querySelectorAll('.setup-garum-resultado');
-  // Lock UI durante la descarga
+  var bars  = document.querySelectorAll('.setup-garum-bar');
+  // Lock UI + reset resultado/barra antes de arrancar
   btns.forEach(function(b){ b.disabled = true; });
+  ress.forEach(function(r){ r.style.display='none'; r.innerHTML=''; });
   hints.forEach(function(h){
-    h.textContent = '⏳ Descargando… (puede tardar varios minutos)';
+    h.textContent = '⏳ Iniciando descarga…';
     h.style.color = 'var(--text2)';
   });
-  ress.forEach(function(r){ r.style.display='none'; r.innerHTML=''; });
+  bars.forEach(function(b){ b.style.display=''; });
+  _setupGarumPintarBarra(0, 0, 'descargando');
 
   var r;
   try {
     r = await post('/api/setup-garum/descargar', {});
   } catch(e){
-    hints.forEach(function(h){
-      h.textContent = '✕ Error de red: '+String(e);
-      h.style.color = 'var(--red-s)';
-    });
-    btns.forEach(function(b){ b.disabled = false; });
+    _setupGarumFallo('Error de red: '+String(e));
     return;
   }
-
-  if(r && r.ok){
-    var mb = (r.size_mb||0).toFixed(1);
-    var unzipped = !!r.unzip_ok;
-    var nFiles = r.files_count || 0;
-    var extractDir = r.extract_dir || 'C:\\GARUMTOOLS\\Setup-GARUM';
-    hints.forEach(function(h){
-      h.textContent = unzipped
-        ? ('✓ Listo · ' + mb + ' MB · ' + nFiles + ' ficheros')
-        : ('✓ Descargado (' + mb + ' MB) — descompresión falló, hazlo a mano');
-      h.style.color = unzipped ? 'var(--green)' : 'var(--amber)';
-    });
-    var html;
-    if(unzipped){
-      html = '<div class="al al-s" style="display:flex;gap:8px;align-items:flex-start">'
-           + '<span class="ai">✓</span>'
-           + '<div><strong>Listo</strong> — abre la carpeta '
-           + '<code>'+H(extractDir)+'</code> y ejecuta los instaladores: '
-           + '<strong>BBDD → Java → GARUM</strong>.</div></div>';
-    } else {
-      html = '<div class="al al-w" style="display:flex;gap:8px;align-items:flex-start">'
-           + '<span class="ai">⚠</span>'
-           + '<div>ZIP descargado en <code>'+H(r.zip_path||'?')+'</code> pero la descompresión falló. '
-           + 'Descomprime manualmente y ejecuta los instaladores BBDD → Java → GARUM.</div></div>';
-    }
-    ress.forEach(function(r){ r.innerHTML = html; r.style.display = ''; });
-  } else {
-    var err = (r && r.error) || 'Error desconocido';
-    hints.forEach(function(h){
-      h.textContent = '✕ ' + err;
-      h.style.color = 'var(--red-s)';
-    });
-    ress.forEach(function(rEl){
-      rEl.innerHTML = '<div class="al al-e"><span class="ai">✕</span>'
-                    + '<div><strong>No se ha podido descargar.</strong><br>'
-                    + '<span style="font-size:12px;color:var(--text2)">'+H(err)+'</span><br>'
-                    + '<span style="font-size:12px">Comprueba que tienes conexión a internet y que el dominio '
-                    + '<code>4gl.fortiddns.com:1604</code> es accesible.</span>'
-                    + '</div></div>';
-      rEl.style.display = '';
-    });
+  if(!(r && r.ok)){
+    _setupGarumFallo((r && r.error) || 'Error desconocido');
+    return;
   }
+  // started / ya_en_curso / demo → en todos los casos poleamos el progreso
+  // (en demo el backend ya dejo el job en "done", el primer tick lo pinta).
+  _setupGarumArrancarPolling();
+}
+
+function _setupGarumArrancarPolling(){
+  if(_setupGarumPoll){ clearInterval(_setupGarumPoll); _setupGarumPoll = null; }
+  var inflight = false;
+  _setupGarumPoll = setInterval(function(){
+    if(inflight) return;
+    inflight = true;
+    get('/api/setup-garum/progreso').then(function(j){
+      inflight = false;
+      if(!(j && j.ok)) return;
+      if(j.estado === 'descargando'){
+        _setupGarumPintarBarra(j.bytes||0, j.total||0, 'descargando');
+      } else if(j.estado === 'descomprimiendo'){
+        _setupGarumPintarBarra(j.bytes||0, j.total||0, 'descomprimiendo');
+      } else if(j.estado === 'done'){
+        clearInterval(_setupGarumPoll); _setupGarumPoll = null;
+        _setupGarumDone(j);
+      } else if(j.estado === 'error'){
+        clearInterval(_setupGarumPoll); _setupGarumPoll = null;
+        _setupGarumFallo(j.error || 'Error desconocido');
+      }
+    }).catch(function(){ inflight = false; /* tick transitorio: reintenta */ });
+  }, 800);
+}
+
+function _setupGarumPintarBarra(bytes, total, estado){
+  var fills  = document.querySelectorAll('.setup-garum-bar-fill');
+  var labels = document.querySelectorAll('.setup-garum-bar-label');
+  var hints  = document.querySelectorAll('.setup-garum-hint');
+  if(estado === 'descomprimiendo'){
+    // sin progreso numerico → barra indeterminada
+    fills.forEach(function(f){ f.className = 'setup-garum-bar-fill ind'; f.style.width=''; });
+    labels.forEach(function(l){ l.textContent = 'Descomprimiendo…'; });
+    hints.forEach(function(h){ h.textContent='📦 Descomprimiendo…'; h.style.color='var(--text2)'; });
+    return;
+  }
+  if(total > 0){
+    var pct = Math.min(100, Math.round(bytes/total*100));
+    var mbHechos = (bytes/1024/1024).toFixed(0);
+    var mbTotal  = (total/1024/1024).toFixed(0);
+    fills.forEach(function(f){ f.className='setup-garum-bar-fill'; f.style.width = pct+'%'; });
+    labels.forEach(function(l){ l.textContent = pct+'% · '+mbHechos+' / '+mbTotal+' MB'; });
+    hints.forEach(function(h){ h.textContent='⏳ Descargando… '+pct+'%'; h.style.color='var(--text2)'; });
+  } else {
+    // aun sin Content-Length → indeterminada
+    fills.forEach(function(f){ f.className='setup-garum-bar-fill ind'; f.style.width=''; });
+    var mbHechos2 = (bytes/1024/1024).toFixed(0);
+    labels.forEach(function(l){ l.textContent = (bytes>0 ? (mbHechos2+' MB…') : 'Conectando…'); });
+    hints.forEach(function(h){ h.textContent='⏳ Descargando…'; h.style.color='var(--text2)'; });
+  }
+}
+
+function _setupGarumDone(j){
+  var btns   = document.querySelectorAll('.setup-garum-btn');
+  var hints  = document.querySelectorAll('.setup-garum-hint');
+  var ress   = document.querySelectorAll('.setup-garum-resultado');
+  var fills  = document.querySelectorAll('.setup-garum-bar-fill');
+  var labels = document.querySelectorAll('.setup-garum-bar-label');
+  var mb = (j.size_mb||0).toFixed(1);
+  var unzipped = !!j.unzip_ok;
+  var nFiles = j.files_count || 0;
+  var extractDir = j.extract_dir || 'C:\\GARUMTOOLS\\Setup-GARUM';
+  // Barra al 100% con color segun resultado
+  fills.forEach(function(f){
+    f.className = 'setup-garum-bar-fill ' + (unzipped ? 'ok' : 'warn');
+    f.style.width = '100%';
+  });
+  labels.forEach(function(l){
+    l.textContent = unzipped
+      ? ('✓ ' + mb + ' MB · ' + nFiles + ' ficheros')
+      : ('⚠ ' + mb + ' MB · descompresión falló');
+  });
+  hints.forEach(function(h){
+    h.textContent = unzipped
+      ? ('✓ Listo · ' + mb + ' MB · ' + nFiles + ' ficheros')
+      : ('✓ Descargado (' + mb + ' MB) — descompresión falló, hazlo a mano');
+    h.style.color = unzipped ? 'var(--green)' : 'var(--amber)';
+  });
+  var html;
+  if(unzipped){
+    html = '<div class="al al-s" style="display:flex;gap:8px;align-items:flex-start">'
+         + '<span class="ai">✓</span>'
+         + '<div><strong>Listo</strong> — abre la carpeta '
+         + '<code>'+H(extractDir)+'</code> y ejecuta los instaladores: '
+         + '<strong>BBDD → Java → GARUM</strong>.</div></div>';
+  } else {
+    html = '<div class="al al-w" style="display:flex;gap:8px;align-items:flex-start">'
+         + '<span class="ai">⚠</span>'
+         + '<div>ZIP descargado en <code>'+H(j.zip_path||'?')+'</code> pero la descompresión falló. '
+         + 'Descomprime manualmente y ejecuta los instaladores BBDD → Java → GARUM.</div></div>';
+  }
+  ress.forEach(function(r){ r.innerHTML = html; r.style.display = ''; });
+  btns.forEach(function(b){ b.disabled = false; });
+}
+
+function _setupGarumFallo(err){
+  if(_setupGarumPoll){ clearInterval(_setupGarumPoll); _setupGarumPoll = null; }
+  var btns  = document.querySelectorAll('.setup-garum-btn');
+  var hints = document.querySelectorAll('.setup-garum-hint');
+  var ress  = document.querySelectorAll('.setup-garum-resultado');
+  var bars  = document.querySelectorAll('.setup-garum-bar');
+  bars.forEach(function(b){ b.style.display='none'; });
+  hints.forEach(function(h){ h.textContent = '✕ ' + err; h.style.color='var(--red-s)'; });
+  ress.forEach(function(rEl){
+    rEl.innerHTML = '<div class="al al-e"><span class="ai">✕</span>'
+                  + '<div><strong>No se ha podido descargar.</strong><br>'
+                  + '<span style="font-size:12px;color:var(--text2)">'+H(err)+'</span><br>'
+                  + '<span style="font-size:12px">Comprueba que tienes conexión a internet y que el dominio '
+                  + '<code>4gl.fortiddns.com:1604</code> es accesible.</span>'
+                  + '</div></div>';
+    rEl.style.display = '';
+  });
   btns.forEach(function(b){ b.disabled = false; });
 }
 
@@ -8230,168 +8444,11 @@ async function act_aplicar(){
 
 
 // ============================================================================
-// MODULO USUARIO SISTEMA (v7.x) — crea usuario Windows local hardcoded
+// (v8.2) MODULO USUARIO SISTEMA retirado — la creación de integracion4gl ya no
+// es un bloque manual con su propio botón; ahora corre como paso 0b automático
+// del plan Reintegrar (solo crea si falta). Ver usysEjecutarEnCard /
+// usysResetCard / reiStepUsys, junto a los helpers de pg_hba más arriba.
 // ============================================================================
-
-function usysInicializar(){
-  // Reset UI al entrar
-  var btn = document.getElementById('usysBtn');
-  var hint = document.getElementById('usysHint');
-  var res = document.getElementById('usysResultado');
-  if(btn) btn.disabled = false;
-  if(hint){ hint.textContent = ''; hint.style.color = ''; }
-  if(res){ res.style.display = 'none'; res.innerHTML = ''; }
-  // Cargar nombre del usuario desde el backend (por si en el futuro deja de estar hardcoded)
-  get('/api/usuario-sistema/info').then(function(r){
-    if(r && r.ok && r.user){
-      var el = document.getElementById('usysNombre');
-      if(el) el.textContent = r.user;
-    }
-  }).catch(function(){ /* sin info — mantiene el valor hardcoded en HTML */ });
-}
-
-// Definicion de las 3 tarjetas con sus titulos. El estado y mensaje se
-// actualizan tras la respuesta del backend.
-var USYS_PASOS = [
-  { id: 'check',  titulo: '1. Comprobar si el usuario ya existe' },
-  { id: 'create', titulo: '2. Crear usuario integracion4gl' },
-  { id: 'group',  titulo: '3. Añadir al grupo Administradores' },
-];
-
-function _usysPintarTarjetas(estados){
-  // estados: { check: {estado, mensaje}, create: ..., group: ... }
-  var res = document.getElementById('usysResultado');
-  if(!res) return;
-  res.style.display = '';
-  // Construir html de las tarjetas usando el formato step-card generico
-  var html = '<div id="usysTarjetas">';
-  USYS_PASOS.forEach(function(p){
-    var s = (estados && estados[p.id]) || { estado: 'pending', mensaje: 'Esperando…' };
-    html += '<div class="step-card '+s.estado+'" id="usysCard_'+p.id+'">'
-         + '<div class="step-card-ico"></div>'
-         + '<div class="step-card-body">'
-         + '<div class="step-card-tit">'+H(p.titulo)+'</div>'
-         + '<div class="step-card-msg">'+H(s.mensaje||'')+'</div>'
-         + '</div></div>';
-  });
-  html += '</div>';
-  html += '<div id="usysBanner" style="margin-top:14px"></div>';
-  res.innerHTML = html;
-}
-
-function _usysActualizarTarjeta(pid, estado, mensaje){
-  var card = document.getElementById('usysCard_'+pid);
-  if(!card) return;
-  card.classList.remove('pending','running','done','skipped','error');
-  card.classList.add(estado);
-  var msgEl = card.querySelector('.step-card-msg');
-  if(msgEl && mensaje !== undefined) msgEl.textContent = mensaje;
-}
-
-function _usysBannerFinal(r){
-  var bn = document.getElementById('usysBanner');
-  if(!bn) return;
-  var resultado = (r && r.resultado) || 'desconocido';
-  var color, bgKey, bdKey, ico, ttl;
-  if(resultado === 'exists'){
-    color = 'var(--green)'; bgKey = 'var(--green-bg)'; bdKey = 'var(--green-bd)'; ico = '✓';
-    ttl = 'El usuario ya existía — no se ha tocado nada';
-  } else if(resultado === 'created'){
-    color = 'var(--green)'; bgKey = 'var(--green-bg)'; bdKey = 'var(--green-bd)'; ico = '✓';
-    ttl = 'Usuario creado y añadido al grupo Administradores';
-  } else if(resultado === 'partial'){
-    color = 'var(--amber)'; bgKey = 'var(--amber-bg)'; bdKey = 'var(--amber-bd)'; ico = '⚠';
-    ttl = 'Usuario creado pero hubo problema con el grupo';
-  } else {
-    color = 'var(--red-s)'; bgKey = 'var(--red-bg)'; bdKey = 'var(--red-bd)'; ico = '✕';
-    ttl = (r && r.resumen) || 'No se pudo crear el usuario';
-  }
-  var html = '<div style="background:'+bgKey+';border:1px solid '+bdKey+';border-left:4px solid '+color+';'
-           + 'border-radius:var(--r);padding:12px 16px;display:flex;gap:12px;align-items:flex-start">'
-           + '<div style="font-size:24px;color:'+color+';line-height:1">'+ico+'</div>'
-           + '<div style="flex:1">'
-           + '<div style="font-weight:700;color:'+color+';font-size:14px">'+H(ttl)+'</div>';
-  if(r && r.user){
-    html += '<div style="font-size:12px;color:var(--text2);margin-top:3px">Usuario: <code>'+H(r.user)+'</code></div>';
-  }
-  // Recordatorio sobre repetir en el resto de TPVs (solo si OK)
-  if(resultado === 'created' || resultado === 'exists'){
-    html += '<div style="font-size:12px;color:var(--text2);margin-top:8px">'
-         + 'ℹ Recuerda repetir este paso en el <strong>resto de TPVs</strong> de la estación '
-         + '(TPV1, TPV2, …) para que todos compartan el usuario.'
-         + '</div>';
-  }
-  html += '</div></div>';
-  bn.innerHTML = html;
-}
-
-function _usysSleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
-
-async function usysCrear(){
-  var btn = document.getElementById('usysBtn');
-  var hint = document.getElementById('usysHint');
-  if(btn) btn.disabled = true;
-  if(hint){ hint.textContent = ''; hint.style.color = ''; }
-
-  if(!confirm('¿Crear el usuario Windows "integracion4gl" en este equipo?\n\n' +
-              'Si el usuario YA existe, no se hace nada.\n' +
-              'Si no existe: se crea + se añade al grupo Administradores + contraseña no caduca.\n\n' +
-              '¿Continuar?')){
-    if(btn) btn.disabled = false;
-    return;
-  }
-
-  // 1) Render inicial: las 3 tarjetas en pending
-  _usysPintarTarjetas({
-    check:  { estado: 'pending', mensaje: 'Esperando…' },
-    create: { estado: 'pending', mensaje: 'Esperando…' },
-    group:  { estado: 'pending', mensaje: 'Esperando…' },
-  });
-
-  // 2) Tras un breve delay, marcar la 1ª en running (feedback visual)
-  await _usysSleep(150);
-  _usysActualizarTarjeta('check', 'running', 'Consultando Get-LocalUser…');
-
-  // 3) Llamar al backend
-  var r;
-  try {
-    r = await post('/api/usuario-sistema/crear', {});
-  } catch(e){
-    r = {ok:false, resumen:'Error de red', resultado:'error',
-         pasos:[{id:'check', estado:'error', mensaje: (e && e.message)||'Sin respuesta del servidor'}]};
-  }
-
-  // 4) Aplicar el estado final de cada tarjeta con stagger entre ellas
-  var pasos = (r && r.pasos) || [];
-  var byId = {};
-  pasos.forEach(function(p){ byId[p.id] = p; });
-  for(var i=0; i<USYS_PASOS.length; i++){
-    var pid = USYS_PASOS[i].id;
-    var info = byId[pid] || { estado: 'pending', mensaje: '' };
-    // Si el paso final NO es running, lo marcamos como running brevemente
-    // antes de su estado real (efecto "el paso está ocurriendo")
-    if(info.estado !== 'pending' && i > 0){
-      _usysActualizarTarjeta(pid, 'running', '');
-      await _usysSleep(180);
-    }
-    _usysActualizarTarjeta(pid, info.estado || 'pending', info.mensaje || '');
-    await _usysSleep(320);
-  }
-
-  // 5) Banner final
-  _usysBannerFinal(r);
-
-  // 6) Hint del botón
-  if(hint){
-    if(r && r.ok){
-      var msg = r.resultado === 'exists' ? '✓ Ya existía — sin cambios' : '✓ Hecho';
-      hint.textContent = msg; hint.style.color = 'var(--green)';
-    } else {
-      hint.textContent = '⚠ Revisa el detalle'; hint.style.color = 'var(--amber)';
-    }
-  }
-  if(btn) btn.disabled = false;
-}
 
 var _integradosData=[];
 var _conexionMpe=false;

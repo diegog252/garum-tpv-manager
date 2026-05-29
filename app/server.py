@@ -1,6 +1,26 @@
 """
-GARUM TPV Manager - Backend v8.1
+GARUM TPV Manager - Backend v8.2
 ==================================
+v8.2:   MEJORAS DE FLUJO EN INSTALACION/REINTEGRACION (sobre v8.1, 29/05/2026):
+
+        1. Barra de progreso real en la descarga de Setup-GARUM. El boton
+           lanza la descarga (POST) y consulta /api/setup-garum/progreso por
+           polling, mostrando % y MB descargados / total. Antes no habia
+           feedback de avance.
+
+        2. "Acceso PostgreSQL en red" (pg_hba.conf + postgresql.conf) deja de
+           ser un bloque colapsable manual y pasa a ejecutarse AUTOMATICAMENTE
+           como paso 0 del job, en AMBAS paginas: Reintegrar TPV (paso 0a,
+           reiStep0) y Nuevo TPV (instStep0). Se pinta verde si OK / rojo si
+           falla; si falla, el job no arranca.
+
+        3. "Usuario de sistema" (Reintegrar TPV) deja de ser un "PASO PREVIO"
+           manual y pasa a paso 0b automatico del job (reiStepUsys). Crea
+           integracion4gl solo si no existe. Si no hay contrasena disponible,
+           avisa-y-sigue (tarjeta ambar) sin abortar el job.
+
+        APP_VERSION="8.2" — propaga al sidebar y al check de actualizaciones.
+
 v8.1:   HARDENING DE PRODUCCION (4 cambios sobre v8.0 detectados en cliente
         real V2 POLIGONO, PostgreSQL 9.5 con BD WIN1252, 28/05/2026):
 
@@ -1433,6 +1453,7 @@ def api_config():
         "ultimo_port": cfg.get("ultimo_port", "5432"),
         "ultimo_db":   cfg.get("ultimo_db",   "tpv"),
         "ultimo_user": cfg.get("ultimo_user", "postgres"),
+        "ultimo_usys_user": cfg.get("ultimo_usys_user", ""),
         "tpvs_custom": tpvs_valid,
     })
 
@@ -1486,10 +1507,16 @@ def api_conectar():
         return jsonify({"ok": False, "error": str(e)}), 400
     db   = data.get("dbname", "tpv").strip()
     user = data.get("user", "postgres").strip()
+    # v8.2: credenciales del usuario de sistema (integracion4gl). Opcionales:
+    # solo se necesitan para copiar archivos entre TPVs y crear el usuario
+    # tecnico. La pwd se guarda SOLO en memoria (sess), nunca en disco.
+    usys_user = (data.get("usys_user") or "").strip()
+    usys_pwd  = data.get("usys_pwd") or ""
     if not PSYCOPG2_OK:
         with _sess_lock:
             sess = {"host": host, "port": port, "dbname": db,
-                    "user": user, "password": "***", "demo": True}
+                    "user": user, "password": "***", "demo": True,
+                    "usys_user": usys_user, "usys_pwd": usys_pwd}
         log("MODO DEMO", "warn")
         return jsonify({"ok": True, "demo": True, "msg": "Modo demo activo"})
     try:
@@ -1500,10 +1527,14 @@ def api_conectar():
         # entre threads (doble F5, dos pestanas abiertas a la vez, etc.).
         with _sess_lock:
             sess = {"host": host, "port": port, "dbname": db,
-                    "user": user, "password": pw, "demo": False}
-        # Guardar la IP de conexión en config.json para próximas sesiones
+                    "user": user, "password": pw, "demo": False,
+                    "usys_user": usys_user, "usys_pwd": usys_pwd}
+        # Guardar la IP de conexión en config.json para próximas sesiones.
+        # v8.2: persistimos SOLO el nombre del usuario de sistema (no es secreto);
+        # la pwd jamas se escribe en disco.
         _guardar_config({"ultimo_host": host, "ultimo_port": port,
-                         "ultimo_db": db, "ultimo_user": user})
+                         "ultimo_db": db, "ultimo_user": user,
+                         "ultimo_usys_user": usys_user})
         log(f"Conectado a {host}:{port}/{db} como {user}", "ok")
         return jsonify({"ok": True, "demo": False,
                         "msg": f"Conectado a {host}:{port}/{db}"})
@@ -2153,6 +2184,12 @@ def api_series_marcar_global():
         for k, v in conflictos_por_serie.items()
     ]
 
+    # host → id_tpv local (de la fase 1). Permite saber, en cada TPV, si una
+    # serie es PROPIA (su propietario es este mismo TPV) o AJENA (pertenece a
+    # otro). Si el TPV no respondio en fase 1 no esta en el mapa → propia=None.
+    num_por_host = {d["host"]: d["num_tpv"] for d in descubrimientos
+                    if d.get("ok") and d.get("num_tpv") is not None}
+
     # ── FASE 2: aplicar marcadores en cada TPV en paralelo ───────────────
     # Por cada serie en su tabla: si tiene propietario en el mapping y
     # NO tiene ya un (N) en su descripcion, marcarla con el (N) del
@@ -2161,8 +2198,10 @@ def api_series_marcar_global():
         host = tpv["ip"]
         nombre = tpv.get("nombre", host)
         # ¿Este TPV respondió en la fase 1? Si no, no podemos saber su
-        # id_tpv local — pero podemos seguir aplicando (no necesitamos
-        # el id local para esta fase, solo el mapping global).
+        # id_tpv local — seguimos aplicando (no necesitamos el id local para
+        # esta fase, solo el mapping global), pero no podremos etiquetar
+        # propia/ajena (mi_num=None → propia=None en los ejemplos).
+        mi_num = num_por_host.get(host)
         c = None
         try:
             c = _conn_tolerante(host=host, port=5432, dbname="tpv",
@@ -2193,10 +2232,13 @@ def api_series_marcar_global():
                 marcador = f"({propietarios[codigo][1]})"
                 nueva = (desc or "").rstrip() + marcador
                 if len(ejemplos) < 5:
+                    # propia: la serie pertenece a ESTE TPV (su propietario es
+                    # mi_num). None si no sabemos el id local (TPV mudo en fase 1).
+                    propia_ej = (propietarios[codigo][0] == mi_num) if mi_num is not None else None
                     ejemplos.append({
                         "id_serie": int(id_s), "serie": codigo,
                         "antes": desc or "", "despues": nueva,
-                        "marcador": marcador,
+                        "marcador": marcador, "propia": propia_ej,
                     })
                 if dry_run:
                     actualizadas += 1
@@ -7457,40 +7499,51 @@ def _job_reintegrar(job_id, password, num_tpv, ip_origen, ip_principal,
                     _job_log(job, f"  ✓ Copia completada (acceso Windows actual) — {ficheros} entradas (exit={rc_robo})")
                     _job_step(job, 6, "done")
                 else:
-                    # ── INTENTO 2: fallback con net use integracion4gl ───
-                    _job_log(job, f"  ⚠ Robocopy directo fallo (exit={rc_robo}). Intentando con '{_USYS_USER}'...")
-                    try:
-                        _r_netuse = subprocess.run(
-                            ["net", "use", _share, "/user:" + _USYS_USER, _USYS_PWD],
-                            capture_output=True, text=True, timeout=15,
-                            creationflags=flags_rc,
-                        )
-                        if _r_netuse.returncode != 0:
-                            _err_brief = (_r_netuse.stderr or _r_netuse.stdout or "").strip().split("\n")[-1][:200]
-                            _job_log(job, f"  ✗ net use {_USYS_USER} fallo: {_err_brief}")
-                            _job_log(job, f"  → Sin acceso a {_share}. Comprueba que:")
-                            _job_log(job, f"     a) Tu usuario Windows tiene admin en {ip_origen}, O")
-                            _job_log(job, f"     b) El usuario '{_USYS_USER}' existe en {ip_origen}")
-                            _job_log(job, f"        (módulo 🔐 Usuario sistema, ejecutado en el PRINCIPAL).")
-                            _job_step(job, 6, "error")
-                        else:
-                            usado_net_use = True
-                            _job_log(job, f"  ✓ Autenticado como '{_USYS_USER}'. Reintentando robocopy...")
-                            try:
-                                rc_robo, ficheros = _ejecutar_robocopy()
-                            except subprocess.TimeoutExpired:
-                                _job_log(job, "  ✗ robocopy timeout (>10 min) tras net use.")
-                                _job_step(job, 6, "error")
-                                raise
-                            if rc_robo < 8:
-                                _job_log(job, f"  ✓ Copia completada con '{_USYS_USER}' — {ficheros} entradas (exit={rc_robo})")
-                                _job_step(job, 6, "done")
-                            else:
-                                _job_log(job, f"  ✗ robocopy fallo incluso con '{_USYS_USER}' (exit={rc_robo})")
-                                _job_step(job, 6, "error")
-                    except subprocess.TimeoutExpired:
-                        _job_log(job, "  ✗ net use timeout — ¿el principal responde?")
+                    # ── INTENTO 2: fallback con net use (usuario de sistema) ───
+                    _usys_u, _usys_p = _usys_creds()
+                    if not _usys_p:
+                        # v8.2: la pwd ya no esta hardcoded. Si el tecnico no la
+                        # introdujo en el login, no hay fallback posible: avisar y
+                        # marcar error con instrucciones claras.
+                        _job_log(job, f"  ⚠ Robocopy directo fallo (exit={rc_robo}) y no se puede usar el fallback autenticado.")
+                        _job_log(job, f"  → No introdujiste la contrasena del usuario de sistema ('{_usys_u}') en el login.")
+                        _job_log(job, f"     Reconecta rellenando ese campo (Opciones avanzadas) para habilitar la copia autenticada,")
+                        _job_log(job, f"     o da a tu usuario Windows acceso admin a {ip_origen}.")
                         _job_step(job, 6, "error")
+                    else:
+                        _job_log(job, f"  ⚠ Robocopy directo fallo (exit={rc_robo}). Intentando con '{_usys_u}'...")
+                        try:
+                            _r_netuse = subprocess.run(
+                                ["net", "use", _share, "/user:" + _usys_u, _usys_p],
+                                capture_output=True, text=True, timeout=15,
+                                creationflags=flags_rc,
+                            )
+                            if _r_netuse.returncode != 0:
+                                _err_brief = (_r_netuse.stderr or _r_netuse.stdout or "").strip().split("\n")[-1][:200]
+                                _job_log(job, f"  ✗ net use {_usys_u} fallo: {_err_brief}")
+                                _job_log(job, f"  → Sin acceso a {_share}. Comprueba que:")
+                                _job_log(job, f"     a) Tu usuario Windows tiene admin en {ip_origen}, O")
+                                _job_log(job, f"     b) El usuario '{_usys_u}' existe en {ip_origen} con esa contrasena")
+                                _job_log(job, f"        (módulo 🔐 Usuario sistema, ejecutado en el PRINCIPAL).")
+                                _job_step(job, 6, "error")
+                            else:
+                                usado_net_use = True
+                                _job_log(job, f"  ✓ Autenticado como '{_usys_u}'. Reintentando robocopy...")
+                                try:
+                                    rc_robo, ficheros = _ejecutar_robocopy()
+                                except subprocess.TimeoutExpired:
+                                    _job_log(job, "  ✗ robocopy timeout (>10 min) tras net use.")
+                                    _job_step(job, 6, "error")
+                                    raise
+                                if rc_robo < 8:
+                                    _job_log(job, f"  ✓ Copia completada con '{_usys_u}' — {ficheros} entradas (exit={rc_robo})")
+                                    _job_step(job, 6, "done")
+                                else:
+                                    _job_log(job, f"  ✗ robocopy fallo incluso con '{_usys_u}' (exit={rc_robo})")
+                                    _job_step(job, 6, "error")
+                        except subprocess.TimeoutExpired:
+                            _job_log(job, "  ✗ net use timeout — ¿el principal responde?")
+                            _job_step(job, 6, "error")
             except RuntimeError:
                 pass  # ya logueado y marcado
             except Exception as e:
@@ -7712,8 +7765,19 @@ def api_reintegrar_iniciar():
 # para funcionar tanto en Windows en español ("Administradores") como ingles
 # ("Administrators").
 
-_USYS_USER = "integracion4gl"
-_USYS_PWD  = "ni4GL101212"
+_USYS_USER = "integracion4gl"  # default; el nombre NO es secreto (editable en login)
+
+
+def _usys_creds():
+    """Devuelve (user, pwd) del usuario de sistema leyendo de la sesion.
+    v8.2: la pwd ya NO esta hardcoded en el codigo (estaba en GitHub). El
+    tecnico la introduce en el login (campo opcional) y se guarda solo en
+    memoria, en `sess`, igual que la pwd de postgres. El nombre cae al default
+    _USYS_USER si el tecnico no lo personalizo. `pwd` es None si no se introdujo
+    — los callers deben avisar y degradar con gracia."""
+    user = (sess.get("usys_user") or "").strip() or _USYS_USER
+    pwd = sess.get("usys_pwd") or None
+    return user, pwd
 
 
 def _crear_usuario_windows_local():
@@ -7730,14 +7794,31 @@ def _crear_usuario_windows_local():
                     {"id": "create", "estado": "pending", "mensaje": ""},
                     {"id": "group",  "estado": "pending", "mensaje": ""},
                 ]}
+    _u, _p = _usys_creds()
+    if not _p:
+        return {"ok": False,
+                "resumen": "Falta la contrasena del usuario de sistema",
+                "resultado": "sin_pwd", "user": _u,
+                "pasos": [
+                    {"id": "check",  "estado": "error",
+                     "mensaje": "No introdujiste la contrasena del usuario de sistema en el login. "
+                                "Reconecta rellenando ese campo (Opciones avanzadas)."},
+                    {"id": "create", "estado": "pending", "mensaje": ""},
+                    {"id": "group",  "estado": "pending", "mensaje": ""},
+                ]}
+    # Escapado para literales PowerShell '...': una comilla simple se duplica.
+    # Imprescindible porque user/pwd vienen del tecnico (evita romper o inyectar
+    # en el script si la contrasena contiene comillas).
+    _u_ps = _u.replace("'", "''")
+    _p_ps = _p.replace("'", "''")
     # El script emite lineas estructuradas STEP<n>:<id>:<estado>:<mensaje>
     # que el backend parsea y devuelve al frontend para renderizar tarjetas.
     # Si el usuario YA existe → check=done, create=skipped, group=skipped (no
     # se toca nada). Si NO existe → se procede con create y group.
     script = (
         "$ErrorActionPreference = 'Stop'\n"
-        "$user = '" + _USYS_USER + "'\n"
-        "$pwd  = ConvertTo-SecureString '" + _USYS_PWD + "' -AsPlainText -Force\n"
+        "$user = '" + _u_ps + "'\n"
+        "$pwd  = ConvertTo-SecureString '" + _p_ps + "' -AsPlainText -Force\n"
         "# Paso 1: comprobar si el usuario ya existe\n"
         "$existing = Get-LocalUser -Name $user -ErrorAction SilentlyContinue\n"
         "if ($existing) {\n"
@@ -7807,16 +7888,16 @@ def _crear_usuario_windows_local():
     except subprocess.TimeoutExpired:
         pasos_default[0] = {"id": "check", "estado": "error", "mensaje": "Timeout PowerShell (>30s)"}
         return {"ok": False, "resumen": "PowerShell timeout (>30s)",
-                "resultado": "timeout", "user": _USYS_USER, "pasos": pasos_default}
+                "resultado": "timeout", "user": _u, "pasos": pasos_default}
     except FileNotFoundError:
         pasos_default[0] = {"id": "check", "estado": "error", "mensaje": "powershell.exe no encontrado"}
         return {"ok": False, "resumen": "PowerShell no encontrado",
-                "resultado": "no_powershell", "user": _USYS_USER, "pasos": pasos_default}
+                "resultado": "no_powershell", "user": _u, "pasos": pasos_default}
     except Exception as e:
         pasos_default[0] = {"id": "check", "estado": "error",
                             "mensaje": str(e).split("\n")[0][:150]}
         return {"ok": False, "resumen": "Error inesperado lanzando PowerShell",
-                "resultado": "exception", "user": _USYS_USER, "pasos": pasos_default}
+                "resultado": "exception", "user": _u, "pasos": pasos_default}
 
     stdout = (proc.stdout or "").strip()
     stderr = (proc.stderr or "").strip()
@@ -7850,7 +7931,7 @@ def _crear_usuario_windows_local():
         msg_err = (stderr.split("\n")[0] if stderr else "Error desconocido")[:200]
         pasos[0] = {"id": "check", "estado": "error", "mensaje": msg_err}
         return {"ok": False, "resumen": "PowerShell devolvio error",
-                "resultado": "error", "user": _USYS_USER, "pasos": pasos}
+                "resultado": "error", "user": _u, "pasos": pasos}
 
     # Determinar resumen segun resultado
     if resultado == "exists":
@@ -7864,9 +7945,9 @@ def _crear_usuario_windows_local():
     else:
         resumen, ok = "Operacion completada con resultado indeterminado", False
 
-    log(f"[usuario-sistema] {_USYS_USER}: resultado={resultado}", "ok" if ok else "warn")
+    log(f"[usuario-sistema] {_u}: resultado={resultado}", "ok" if ok else "warn")
     return {"ok": ok, "resumen": resumen, "resultado": resultado,
-            "user": _USYS_USER, "pasos": pasos}
+            "user": _u, "pasos": pasos}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -7876,7 +7957,7 @@ def _crear_usuario_windows_local():
 # solo este valor (+ los .bat / NSI / docs) en el siguiente release.
 # ─────────────────────────────────────────────────────────────────────────────
 
-APP_VERSION = "8.1"
+APP_VERSION = "8.2"
 APP_NAME    = "GARUM TPV Manager"
 _USER_AGENT = f"GARUM-TPV-Manager/{APP_VERSION}"
 
@@ -7887,29 +7968,56 @@ _actualizando_lock = threading.Lock()
 _actualizando_en_curso = False
 
 
-def _descargar_url_a_fichero(url, dest_path, timeout=600, user_agent=None):
+def _descargar_url_a_fichero(url, dest_path, timeout=600, user_agent=None,
+                             progress_cb=None):
     """Descarga url → dest_path con escritura atomica (.tmp + replace).
     Fallback SSL no-verify si el primer intento con verificacion falla
     (algunos clientes tienen cert FortiDDNS auto-firmado).
+
+    progress_cb(leido, total): callback opcional invocado por cada bloque
+    leido. `total` es el Content-Length (0 si el servidor no lo manda). Si
+    hay reintento SSL, `leido` vuelve a 0 al reempezar la descarga.
 
     Lanza RuntimeError si la descarga acaba pero el fichero esta vacio.
     Lanza otras excepciones (URLError, OSError) sin envolverlas — el caller
     decide como reportarlas.
     """
-    import urllib.request, ssl, shutil
+    import urllib.request, urllib.error, ssl
     tmp_path = dest_path + ".tmp"
     ua = user_agent or _USER_AGENT
 
     def _do(ctx):
         req = urllib.request.Request(url, headers={"User-Agent": ua})
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            try:
+                total = int(resp.headers.get("Content-Length") or 0)
+            except (TypeError, ValueError):
+                total = 0
+            if progress_cb:
+                progress_cb(0, total)
+            leido = 0
             with open(tmp_path, "wb") as f:
-                shutil.copyfileobj(resp, f, length=64 * 1024)
+                while True:
+                    chunk = resp.read(256 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    leido += len(chunk)
+                    if progress_cb:
+                        progress_cb(leido, total)
 
     try:
         _do(ssl.create_default_context())
-    except ssl.SSLError as ssl_err:
-        log(f"[descarga] SSL verify fallo ({ssl_err}); reintentando sin verify",
+    except (ssl.SSLError, urllib.error.URLError) as err:
+        # urlopen envuelve el fallo de verificacion del cert en urllib.error.URLError
+        # cuyo .reason es un ssl.SSLError (p.ej. SSLCertVerificationError), por lo
+        # que un `except ssl.SSLError` directo NO lo captura. Reintentamos sin verify
+        # SOLO si la causa es SSL; otros URLError (DNS, conexion rehusada, timeout)
+        # se relanzan tal cual para no ocultar fallos de red reales.
+        _reason = getattr(err, "reason", None)
+        if not (isinstance(err, ssl.SSLError) or isinstance(_reason, ssl.SSLError)):
+            raise
+        log(f"[descarga] SSL verify fallo ({err}); reintentando sin verify",
             "warn")
         _do(ssl._create_unverified_context())
 
@@ -8142,15 +8250,81 @@ def api_pg_acceso_configurar():
 # ─────────────────────────────────────────────────────────────────────────────
 # SETUP-GARUM (PASO 0): descarga del ZIP con los instaladores (BBDD + Java +
 # GARUM) desde la nube 4GL. Usado al principio de Reintegrar TPV y Nuevo TPV.
-# Endpoint sincrono: bloquea hasta que termine la descarga. Si el ZIP fuera
-# muy grande convendria pasar a job async, pero para los tamanos actuales
-# (<= 300 MB tipico) la respuesta tarda 30-90 s y el frontend muestra spinner.
+# v8.2: el ZIP es grande (~1.2 GB), asi que la descarga corre en un thread de
+# fondo y el frontend pinta una barra de progreso poleando /progreso. El estado
+# vive en _setup_garum_job (bajo _setup_garum_lock).
 # ─────────────────────────────────────────────────────────────────────────────
 
 _SETUP_GARUM_URL     = "https://4gl.fortiddns.com:1604/descargas/Setup-GARUM.zip"
 _SETUP_GARUM_DIR     = r"C:\GARUMTOOLS"
 _SETUP_GARUM_PATH    = r"C:\GARUMTOOLS\Setup-GARUM.zip"
 _SETUP_GARUM_EXTRACT = r"C:\GARUMTOOLS\Setup-GARUM"
+
+# Estado del job de descarga. estado ∈ idle|descargando|descomprimiendo|done|error
+_setup_garum_lock = threading.Lock()
+_setup_garum_job = {"estado": "idle", "bytes": 0, "total": 0, "size_mb": 0.0,
+                    "files_count": 0, "unzip_ok": False, "error": None}
+
+
+def _setup_garum_worker():
+    """Descarga + descomprime Setup-GARUM.zip en segundo plano, publicando el
+    progreso en _setup_garum_job. No lanza: cualquier fallo queda en estado=error."""
+    import shutil, zipfile
+
+    def _cb(leido, total):
+        with _setup_garum_lock:
+            _setup_garum_job["bytes"] = leido
+            _setup_garum_job["total"] = total
+
+    try:
+        os.makedirs(_SETUP_GARUM_DIR, exist_ok=True)
+        log(f"[setup-garum] Descargando {_SETUP_GARUM_URL} → {_SETUP_GARUM_PATH}", "info")
+        size = _descargar_url_a_fichero(_SETUP_GARUM_URL, _SETUP_GARUM_PATH,
+                                        timeout=1800, progress_cb=_cb)
+        size_mb = round(size / 1024 / 1024, 1)
+        log(f"[setup-garum] OK descarga — {size_mb} MB", "ok")
+        with _setup_garum_lock:
+            _setup_garum_job["size_mb"] = size_mb
+            _setup_garum_job["estado"] = "descomprimiendo"
+
+        # ── Descompresion automatica (limpia carpeta destino antes) ──────────
+        unzip_ok = False
+        files_count = 0
+        try:
+            if os.path.isdir(_SETUP_GARUM_EXTRACT):
+                shutil.rmtree(_SETUP_GARUM_EXTRACT, ignore_errors=True)
+            os.makedirs(_SETUP_GARUM_EXTRACT, exist_ok=True)
+            with zipfile.ZipFile(_SETUP_GARUM_PATH, "r") as zf:
+                # Defensa zip slip: rechaza entradas que se salgan del destino.
+                base_abs = os.path.abspath(_SETUP_GARUM_EXTRACT)
+                for member in zf.infolist():
+                    member_path = os.path.abspath(os.path.join(base_abs, member.filename))
+                    if not member_path.startswith(base_abs + os.sep) and member_path != base_abs:
+                        raise RuntimeError(f"Zip slip detectado: {member.filename}")
+                zf.extractall(_SETUP_GARUM_EXTRACT)
+                files_count = len(zf.namelist())
+            unzip_ok = True
+            log(f"[setup-garum] OK descomprimido — {files_count} ficheros en {_SETUP_GARUM_EXTRACT}", "ok")
+        except Exception as e_unzip:
+            msg = str(e_unzip).split("\n")[0]
+            log(f"[setup-garum] WARN no se pudo descomprimir: {msg}", "warn")
+            # El ZIP esta descargado — el tecnico puede descomprimirlo a mano.
+
+        with _setup_garum_lock:
+            _setup_garum_job["files_count"] = files_count
+            _setup_garum_job["unzip_ok"] = unzip_ok
+            _setup_garum_job["estado"] = "done"
+    except Exception as e:
+        try:
+            if os.path.isfile(_SETUP_GARUM_PATH + ".tmp"):
+                os.remove(_SETUP_GARUM_PATH + ".tmp")
+        except Exception:
+            pass
+        msg = str(e).split("\n")[0]
+        log(f"[setup-garum] ERROR: {msg}", "error")
+        with _setup_garum_lock:
+            _setup_garum_job["error"] = msg
+            _setup_garum_job["estado"] = "error"
 
 
 @app.route("/api/setup-garum/info")
@@ -8173,69 +8347,43 @@ def api_setup_garum_info():
 @csrf
 @need_conn
 def api_setup_garum_descargar():
-    """Descarga Setup-GARUM.zip desde la URL fija de 4GL y lo DESCOMPRIME
-    en C:\\GARUMTOOLS\\Setup-GARUM\\ — listo para que el tecnico ejecute
-    los instaladores directamente sin paso manual de descompresion.
+    """Arranca la descarga+descompresion de Setup-GARUM.zip en un thread de
+    fondo (el ZIP ronda 1.2 GB). Retorna de inmediato; el frontend pinta una
+    barra poleando /api/setup-garum/progreso.
 
-    Returns: {ok, zip_path, extract_dir, size_mb, files_count, unzip_ok}
+    Returns: {ok, started}  (started=False si ya habia una descarga en curso)
     """
     if sess.get("demo"):
-        return jsonify({"ok": True, "demo": True,
-                        "zip_path": _SETUP_GARUM_PATH,
-                        "extract_dir": _SETUP_GARUM_EXTRACT,
-                        "size_mb": 0.0, "files_count": 0, "unzip_ok": True})
-    import shutil, zipfile
-    try:
-        os.makedirs(_SETUP_GARUM_DIR, exist_ok=True)
-        log(f"[setup-garum] Descargando {_SETUP_GARUM_URL} → {_SETUP_GARUM_PATH}", "info")
-        # Helper compartido (v8.0): escritura atomica + fallback SSL no-verify.
-        size = _descargar_url_a_fichero(_SETUP_GARUM_URL, _SETUP_GARUM_PATH,
-                                        timeout=600)
-        size_mb = round(size / 1024 / 1024, 1)
-        log(f"[setup-garum] OK descarga — {size_mb} MB", "ok")
+        with _setup_garum_lock:
+            _setup_garum_job.update({"estado": "done", "bytes": 0, "total": 0,
+                                     "size_mb": 0.0, "files_count": 0,
+                                     "unzip_ok": True, "error": None})
+        return jsonify({"ok": True, "demo": True, "started": False})
 
-        # ── Descompresion automatica ──────────────────────────────────
-        # Limpia la carpeta de extraccion anterior (si existe) — evita
-        # mezclar restos de instalaciones previas. Es seguro porque la
-        # carpeta es exclusiva (C:\GARUMTOOLS\Setup-GARUM\).
-        unzip_ok = False
-        files_count = 0
-        try:
-            if os.path.isdir(_SETUP_GARUM_EXTRACT):
-                shutil.rmtree(_SETUP_GARUM_EXTRACT, ignore_errors=True)
-            os.makedirs(_SETUP_GARUM_EXTRACT, exist_ok=True)
-            with zipfile.ZipFile(_SETUP_GARUM_PATH, "r") as zf:
-                # Defensa contra path traversal (zip slip): rechazamos
-                # entradas cuyo path resuelto se sale del directorio destino.
-                base_abs = os.path.abspath(_SETUP_GARUM_EXTRACT)
-                for member in zf.infolist():
-                    member_path = os.path.abspath(os.path.join(base_abs, member.filename))
-                    if not member_path.startswith(base_abs + os.sep) and member_path != base_abs:
-                        raise RuntimeError(f"Zip slip detectado: {member.filename}")
-                zf.extractall(_SETUP_GARUM_EXTRACT)
-                files_count = len(zf.namelist())
-            unzip_ok = True
-            log(f"[setup-garum] OK descomprimido — {files_count} ficheros en {_SETUP_GARUM_EXTRACT}", "ok")
-        except Exception as e_unzip:
-            msg = str(e_unzip).split("\n")[0]
-            log(f"[setup-garum] WARN no se pudo descomprimir: {msg}", "warn")
-            # El ZIP esta descargado correctamente — el tecnico puede descomprimirlo a mano.
+    with _setup_garum_lock:
+        if _setup_garum_job["estado"] in ("descargando", "descomprimiendo"):
+            return jsonify({"ok": True, "started": False, "ya_en_curso": True})
+        # Reset del estado y marca en curso ANTES de lanzar el thread.
+        _setup_garum_job.update({"estado": "descargando", "bytes": 0, "total": 0,
+                                 "size_mb": 0.0, "files_count": 0,
+                                 "unzip_ok": False, "error": None})
+    threading.Thread(target=_setup_garum_worker, daemon=True).start()
+    return jsonify({"ok": True, "started": True})
 
-        return jsonify({"ok": True,
-                        "zip_path": _SETUP_GARUM_PATH,
-                        "extract_dir": _SETUP_GARUM_EXTRACT,
-                        "size": int(size), "size_mb": size_mb,
-                        "unzip_ok": unzip_ok,
-                        "files_count": files_count})
-    except Exception as e:
-        try:
-            if os.path.isfile(_SETUP_GARUM_PATH + ".tmp"):
-                os.remove(_SETUP_GARUM_PATH + ".tmp")
-        except Exception:
-            pass
-        msg = str(e).split("\n")[0]
-        log(f"[setup-garum] ERROR: {msg}", "error")
-        return jsonify({"ok": False, "error": msg}), 500
+
+@app.route("/api/setup-garum/progreso")
+@need_conn
+def api_setup_garum_progreso():
+    """Estado del job de descarga para la barra de progreso del frontend.
+    Returns: {ok, estado, bytes, total, pct, size_mb, files_count, unzip_ok,
+              error, zip_path, extract_dir}"""
+    with _setup_garum_lock:
+        j = dict(_setup_garum_job)
+    j["pct"] = round(j["bytes"] / j["total"] * 100, 1) if j["total"] > 0 else 0
+    j["ok"] = True
+    j["zip_path"] = _SETUP_GARUM_PATH
+    j["extract_dir"] = _SETUP_GARUM_EXTRACT
+    return jsonify(j)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -8273,7 +8421,7 @@ def api_actualizar_check():
     Returns {ok:True, version_local, version_remota, hay_actualizacion,
              zip_url, comprobado_en, motivo?}
     """
-    import urllib.request, ssl, datetime
+    import urllib.request, urllib.error, ssl, datetime
 
     def _ahora_iso():
         return datetime.datetime.now().replace(microsecond=0).isoformat()
@@ -8292,7 +8440,13 @@ def api_actualizar_check():
 
         try:
             version_remota = _leer(ssl.create_default_context())
-        except ssl.SSLError:
+        except (ssl.SSLError, urllib.error.URLError) as err:
+            # urlopen envuelve el fallo de cert en URLError(.reason=SSLError);
+            # solo reintentamos sin verify si la causa es SSL (cert self-signed
+            # de FortiDDNS), no ante fallos de red reales.
+            _reason = getattr(err, "reason", None)
+            if not (isinstance(err, ssl.SSLError) or isinstance(_reason, ssl.SSLError)):
+                raise
             version_remota = _leer(ssl._create_unverified_context())
     except Exception as e:
         msg = str(e).split("\n")[0][:200]
@@ -8454,8 +8608,11 @@ def api_actualizar_aplicar():
 @need_conn
 def api_usuario_sistema_info():
     """Devuelve metadata sobre el usuario sistema (sin la contraseña).
-    Util para que el frontend muestre el nombre antes de pulsar el boton."""
-    return jsonify({"ok": True, "user": _USYS_USER,
+    Util para que el frontend muestre el nombre antes de pulsar el boton.
+    v8.2: `tiene_pwd` indica si el tecnico introdujo la contrasena en el login
+    (la pwd ya no esta hardcoded); la UI lo usa para avisar antes de intentar."""
+    _u, _p = _usys_creds()
+    return jsonify({"ok": True, "user": _u, "tiene_pwd": bool(_p),
                     "descripcion": "Usuario admin local para integracion entre TPVs GARUM."})
 
 
@@ -8465,12 +8622,26 @@ def api_usuario_sistema_info():
 def api_usuario_sistema_crear():
     """Crea el usuario sistema en el Windows LOCAL del TPV donde corre la app
     SI no existe ya. Si ya existe, NO se toca nada (ni contraseña, ni grupo,
-    ni flags). Sin parametros — usuario y pwd estan hardcoded en el server."""
+    ni flags). v8.2: la contrasena se toma de la sesion (campo del login), ya
+    no esta hardcoded; _crear_usuario_windows_local() falla con mensaje claro
+    si no se introdujo. v8.2: tambien acepta la pwd inline en el body
+    (campo del propio paso "Usuario sistema") para no obligar a reconectar;
+    si llega, se guarda en `sess` (solo memoria) y queda disponible para el
+    resto de la sesion, igual que la del login."""
+    data = request.get_json(silent=True) or {}
+    _pwd_in = (data.get("usys_pwd") or "")
+    _user_in = (data.get("usys_user") or "").strip()
+    if _pwd_in or _user_in:
+        with _sess_lock:
+            if _pwd_in:
+                sess["usys_pwd"] = _pwd_in
+            if _user_in:
+                sess["usys_user"] = _user_in
     if sess.get("demo"):
         return jsonify({
             "ok": True, "demo": True,
             "resumen": "[DEMO] Usuario integracion4gl creado",
-            "resultado": "created", "user": _USYS_USER,
+            "resultado": "created", "user": _usys_creds()[0],
             "pasos": [
                 {"id": "check",  "estado": "done",
                  "mensaje": "Usuario \"integracion4gl\" NO existe — procediendo a crearlo"},
@@ -9321,7 +9492,7 @@ def _nav():
 
 
 if __name__ == "__main__":
-    log(f"GARUM TPV Manager v7.3 en http://{HOST}:{PORT}", "info")
+    log(f"GARUM TPV Manager v{APP_VERSION} en http://{HOST}:{PORT}", "info")
     log(f"psycopg2: {PSYCOPG2_OK}", "info" if PSYCOPG2_OK else "warn")
     threading.Thread(target=_nav, daemon=True).start()
     # threaded=True explicito para no depender de defaults futuros de Flask.
