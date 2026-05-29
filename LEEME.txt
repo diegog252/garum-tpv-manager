@@ -1,7 +1,39 @@
-GARUM TPV Manager v8.2
+GARUM TPV Manager v8.3
 =======================
 Herramienta interna para gestionar la integracion de TPVs GARUM.
 Diseno corporativo 4GL Solutions.
+
+
+NOVEDADES v8.3 — FIX: LA AUTO-ACTUALIZACION YA ENCUENTRA EL PACK NUEVO
+----------------------------------------------------------------------
+Arreglo importante del modulo "🔄 Actualizar".
+
+EL PROBLEMA
+  La app descargaba el pack de actualizacion por un nombre FIJO
+  (GARUM_TPV_Manager_v7.4_distribucion.zip), heredado de v8.0. Como en el
+  servidor el pack lleva la version en el nombre (..._v8.2_distribucion.zip,
+  ..._v8.3_distribucion.zip...), al publicar una version nueva la descarga
+  daba error 404 y "Actualizar" fallaba sin remedio.
+
+LA SOLUCION
+  Ahora la app construye el nombre del pack con la version que lee de
+  version_manager.txt. Si el servidor anuncia "8.3", busca
+  GARUM_TPV_Manager_v8.3_distribucion.zip. Si no puede leer una version
+  fiable, avisa en vez de descargar a ciegas.
+
+PARA TI (4GL) — COMO PUBLICAR UNA VERSION NUEVA (sustituye lo de v8.0)
+  1. Sube a https://4gl.fortiddns.com:1604/descargas/ el pack con su
+     nombre de version REAL: GARUM_TPV_Manager_vX.Y_distribucion.zip
+     (p.ej. GARUM_TPV_Manager_v8.3_distribucion.zip). El nombre SI cambia
+     en cada release — tiene que coincidir con la version.
+  2. Edita version_manager.txt y pon la nueva version (p.ej. "8.3").
+
+  OJO — SALTO DESDE VERSIONES VIEJAS:
+  Los TPVs que todavia tengan v8.2 o anterior llevan grabado el nombre
+  fijo v7.4. Para que ESOS den el salto a v8.3, manten TAMBIEN en el
+  servidor GARUM_TPV_Manager_v7.4_distribucion.zip con el contenido de
+  v8.3. Una vez ya esten en v8.3, el nombre por version funciona solo
+  de ahi en adelante y ya puedes retirar el v7.4.
 
 
 NOVEDADES v8.2 — INSTALACION/REINTEGRACION MAS AUTOMATICA
@@ -828,4 +860,4 @@ DOCUMENTACION COMPLETA
 ----------------------
 Ver README.md en esta misma carpeta.
 
-VERSION ACTUAL: v8.2
+VERSION ACTUAL: v8.3

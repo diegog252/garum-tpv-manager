@@ -1,6 +1,20 @@
 """
-GARUM TPV Manager - Backend v8.2
+GARUM TPV Manager - Backend v8.3
 ==================================
+v8.3:   FIX AUTO-ACTUALIZACION — NOMBRE DEL PACK POR VERSION (sobre v8.2, 29/05/2026):
+
+        1. El modulo "🔄 Actualizar" descargaba el pack de distribucion por un
+           nombre FIJO (GARUM_TPV_Manager_v7.4_distribucion.zip), clavado desde
+           v8.0. Como el servidor publica el pack con la version en el nombre
+           (..._v{version}_distribucion.zip), al sacar versiones nuevas la
+           descarga daba 404 y la actualizacion fallaba. Ahora la URL del ZIP
+           se construye con la version remota leida de version_manager.txt
+           (helper _update_zip_url); /api/actualizar/check la devuelve y
+           /api/actualizar/aplicar la usa. Si no hay version remota fiable,
+           aborta limpio (502) en vez de enmascarar un 404.
+
+        APP_VERSION="8.3" — propaga al sidebar y al check de actualizaciones.
+
 v8.2:   MEJORAS DE FLUJO EN INSTALACION/REINTEGRACION (sobre v8.1, 29/05/2026):
 
         1. Barra de progreso real en la descarga de Setup-GARUM. El boton
@@ -7957,7 +7971,7 @@ def _crear_usuario_windows_local():
 # solo este valor (+ los .bat / NSI / docs) en el siguiente release.
 # ─────────────────────────────────────────────────────────────────────────────
 
-APP_VERSION = "8.2"
+APP_VERSION = "8.3"
 APP_NAME    = "GARUM TPV Manager"
 _USER_AGENT = f"GARUM-TPV-Manager/{APP_VERSION}"
 
@@ -8395,10 +8409,22 @@ def api_setup_garum_progreso():
 # que un doble click dispare 2 descargas/relanzamientos en paralelo.
 # ─────────────────────────────────────────────────────────────────────────────
 
-_UPDATE_VERSION_URL = "https://4gl.fortiddns.com:1604/descargas/version_manager.txt"
-_UPDATE_ZIP_URL     = "https://4gl.fortiddns.com:1604/descargas/GARUM_TPV_Manager_v7.4_distribucion.zip"
+_UPDATE_BASE_URL    = "https://4gl.fortiddns.com:1604/descargas"
+_UPDATE_VERSION_URL = _UPDATE_BASE_URL + "/version_manager.txt"
+# v8.3: el pack de distribucion se publica en el servidor con la version en el
+# nombre (GARUM_TPV_Manager_v{ver}_distribucion.zip). Antes la URL del ZIP era
+# una constante fija clavada en v7.4, asi que al publicar una version nueva la
+# descarga daba 404. Ahora se construye con la version remota leida de
+# version_manager.txt (ver _update_zip_url).
+_UPDATE_ZIP_TMPL    = _UPDATE_BASE_URL + "/GARUM_TPV_Manager_v{ver}_distribucion.zip"
 _UPDATE_DIR         = r"C:\GARUMTOOLS\Update"
 _UPDATE_ZIP_PATH    = r"C:\GARUMTOOLS\Update\update.zip"
+
+
+def _update_zip_url(version_remota):
+    """Construye la URL del pack de distribucion para una version dada.
+    El servidor publica GARUM_TPV_Manager_v{ver}_distribucion.zip."""
+    return _UPDATE_ZIP_TMPL.format(ver=version_remota)
 
 
 @app.route("/api/app-info")
@@ -8459,7 +8485,7 @@ def api_actualizar_check():
             "version_local": APP_VERSION,
             "version_remota": None,
             "hay_actualizacion": False,
-            "zip_url": _UPDATE_ZIP_URL,
+            "zip_url": None,
             "comprobado_en": _ahora_iso(),
             "motivo": motivo or "Sin version remota leible",
         })
@@ -8473,7 +8499,7 @@ def api_actualizar_check():
         "version_local": APP_VERSION,
         "version_remota": version_remota,
         "hay_actualizacion": hay,
-        "zip_url": _UPDATE_ZIP_URL,
+        "zip_url": _update_zip_url(version_remota),
         "comprobado_en": _ahora_iso(),
     })
 
@@ -8520,10 +8546,20 @@ def api_actualizar_aplicar():
             # confirmara el estado real).
             version_remota = "?"
 
+        # v8.3: construir la URL del pack con la version remota (el servidor
+        # nombra el zip con la version). Sin version fiable no sabemos que pack
+        # pedir, asi que abortamos limpio en vez de dar un 404 enmascarado.
+        if not version_remota or version_remota == "?":
+            with _actualizando_lock:
+                _actualizando_en_curso = False
+            return jsonify({"ok": False,
+                            "error": ("No se pudo determinar la version remota "
+                                      "para localizar el pack de actualizacion")}), 502
+        zip_url = _update_zip_url(version_remota)
         os.makedirs(_UPDATE_DIR, exist_ok=True)
-        log(f"[actualizar/aplicar] Descargando ZIP desde {_UPDATE_ZIP_URL}",
+        log(f"[actualizar/aplicar] Descargando ZIP desde {zip_url}",
             "info")
-        size = _descargar_url_a_fichero(_UPDATE_ZIP_URL, _UPDATE_ZIP_PATH,
+        size = _descargar_url_a_fichero(zip_url, _UPDATE_ZIP_PATH,
                                         timeout=600)
         size_mb = round(size / 1024 / 1024, 1)
         log(f"[actualizar/aplicar] OK descarga — {size_mb} MB", "ok")
